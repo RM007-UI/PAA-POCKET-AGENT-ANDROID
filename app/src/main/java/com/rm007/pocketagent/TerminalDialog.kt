@@ -18,16 +18,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Dialog
-import androidx.compose.material3.DialogProperties
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -153,7 +151,7 @@ internal fun PocketTerminalDialog(
                         .fillMaxWidth()
                         .background(Color(0xFF070B08)),
                     factory = { viewContext ->
-                        TerminalView(viewContext).apply {
+                        TerminalView(viewContext, null).apply {
                             setTerminalViewClient(controller)
                             setTypeface(Typeface.MONOSPACE)
                             setTextSize(14)
