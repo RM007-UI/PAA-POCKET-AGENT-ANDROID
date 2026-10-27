@@ -1,0 +1,83 @@
+name: Build embedded Termux runtime for PAA
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/embedded-termux-bootstrap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: paa-embedded-termux-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Check out Termux package build system
+        uses: actions/checkout@v4
+        with:
+          repository: agnostic-apollo/termux-packages
+          ref: infra-improvs
+          path: termux-packages
+          fetch-depth: 1
+
+      - name: Configure the bootstrap for PAA's app ID
+        working-directory: termux-packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '^TERMUX_APP__PACKAGE_NAME="com.termux"$' scripts/properties.sh
+          sed -i 's/^TERMUX_APP__PACKAGE_NAME="com.termux"$/TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"/' scripts/properties.sh
+          grep -q '^TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"$' scripts/properties.sh
+
+      - name: Clear packages built for the upstream prefix
+        working-directory: termux-packages
+        run: ./scripts/run-docker.sh ./clean.sh
+
+      - name: Build aarch64 bootstrap and common developer tools
+        working-directory: termux-packages
+        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --packages-post-additional git,python,nodejs,nano,curl,wget,tree
+
+      - name: Verify bootstrap and create checksum
+        working-directory: termux-packages
+        run: |
+          set -euo pipefail
+          test -s bootstrap-aarch64.zip
+          unzip -l bootstrap-aarch64.zip | grep -q 'SYMLINKS.txt'
+          sha256sum bootstrap-aarch64.zip > bootstrap-aarch64.zip.sha256
+          cat bootstrap-aarch64.zip.sha256
+
+      - name: Upload bootstrap build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: paa-embedded-termux-bootstrap-aarch64
+          path: |
+            termux-packages/bootstrap-aarch64.zip
+            termux-packages/bootstrap-aarch64.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish bootstrap asset for the APK build
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: paa-embedded-termux-bootstrap-v1
+          name: PAA embedded Termux runtime (aarch64)
+          body: |
+            Custom-prefix Termux bootstrap built for application ID com.rm007.pocketagent.
+            Includes the bootstrap base plus Git, Python, Node.js, nano, curl, wget and tree.
+            Do not use official com.termux packages inside this runtime; their compiled prefix differs.
+          target_commitish: main
+          prerelease: true
+          make_latest: false
+          overwrite_files: true
+          files: |
+            termux-packages/bootstrap-aarch64.zip
+            termux-packages/bootstrap-aarch64.zip.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
