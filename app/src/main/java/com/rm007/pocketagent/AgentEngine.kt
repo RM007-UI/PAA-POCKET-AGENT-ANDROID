@@ -259,7 +259,7 @@ class AgentEngine(context: Context, private val chatStore: ChatStore = ChatStore
 
     private fun getDeviceInfo(): String {
         val stats = StatFs(appContext.filesDir.absolutePath)
-        return "سازنده: ${Build.MANUFACTURER}\nمدل: ${Build.MODEL}\nنسخهٔ Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT)" +
+        return "سازنده: ${Build.MANUFACTURER}\nمدل: ${Build.MODEL}\nنسخهٔ Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})" +
             "\nABI: ${Build.SUPPORTED_ABIS.joinToString(", ")}" +
             "\nفضای آزاد app-private: ${stats.availableBytes / (1024 * 1024)} MB" +
             "\nپوشهٔ کاری Pocket Agent: ${AgentHome.rootDirectory(appContext).absolutePath}" +
