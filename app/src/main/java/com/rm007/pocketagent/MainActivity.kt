@@ -1,8 +1,12 @@
 package com.rm007.pocketagent
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -30,6 +34,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
@@ -109,22 +115,25 @@ private val PocketColors = darkColorScheme(
 private fun PocketAgentApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val agent = remember { AgentEngine(context.applicationContext) }
+    val chatStore = remember { ChatStore(context.applicationContext) }
+    val terminalTools = remember { TerminalTools(context.applicationContext) }
+    var currentChatId by remember { mutableStateOf(chatStore.currentChatId()) }
+    val agent = remember { AgentEngine(context.applicationContext, chatStore).apply { selectChat(chatStore.currentChatId()) } }
     val securePrefs = remember { SecurePrefs(context.applicationContext) }
 
-    var messages by remember {
-        mutableStateOf(
-            listOf(
-                UiMessage(
-                    "assistant",
-                    "سلام! من Pocket Agent هستم؛ ایجنت کدنویسی روی اندروید. پوشهٔ پروژه را انتخاب کن تا فایل‌ها را بخوانم، جست‌وجو کنم و در یک کپی کاری ویرایش کنم. برای نوشتن روی فایل اصلی باید تغییرات را بازبینی و اعمال کنی. فرمان‌های ترمینال و روت هم پیش از اجرا تأیید می‌خواهند."
-                )
-            )
-        )
+    var messages by remember(currentChatId) {
+        val saved = chatStore.loadMessages(currentChatId).map { UiMessage(it.role, it.text) }
+        mutableStateOf(saved.ifEmpty {
+            listOf(UiMessage("assistant", "سلام! من Pocket Agent هستم. گفتگو و حافظهٔ مدل این چت به‌صورت جداگانه ذخیره می‌شود؛ حافظهٔ کلی هم بین همهٔ چت‌ها مشترک است."))
+        })
     }
+    var chatList by remember { mutableStateOf(chatStore.listChats()) }
     var input by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showChats by remember { mutableStateOf(false) }
+    var showToolbox by remember { mutableStateOf(false) }
+    var showMemory by remember { mutableStateOf(false) }
     var showChanges by remember { mutableStateOf(false) }
     var showApplyConfirm by remember { mutableStateOf(false) }
     var showDiscardConfirm by remember { mutableStateOf(false) }
@@ -139,6 +148,19 @@ private fun PocketAgentApp() {
     var showAccessSetup by remember { mutableStateOf(!isPocketAccessibilityEnabled(context)) }
     var projectVersion by remember { mutableStateOf(0) }
     val listState = rememberLazyListState()
+    var permissionGate by remember { mutableStateOf<CompletableDeferred<Map<String, Boolean>>?>(null) }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        permissionGate?.complete(result)
+        permissionGate = null
+    }
+
+    LaunchedEffect(currentChatId, messages) {
+        val stored = messages.map { StoredMessage(it.role, it.text) }
+        withContext(Dispatchers.IO) {
+            chatStore.saveMessages(currentChatId, stored)
+            chatStore.listChats()
+        }.also { chatList = it }
+    }
 
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -233,6 +255,8 @@ private fun PocketAgentApp() {
         val prompt = input.trim()
         if (prompt.isEmpty() || busy) return
         input = ""
+        chatStore.updateTitleFromFirstMessage(currentChatId, prompt)
+        chatList = chatStore.listChats()
         messages = messages + UiMessage("user", prompt)
         busy = true
         scope.launch {
@@ -251,13 +275,45 @@ private fun PocketAgentApp() {
                             "کاربر اجرای فرمان را رد کرد؛ این فرمان اجرا نشد."
                         } else {
                             withContext(Dispatchers.IO) {
-                                ShellRunner.execute(
-                                    command = action.command,
-                                    workingDirectory = agent.workspace.workDirectory(),
-                                    root = action.requiresRoot,
-                                    timeoutSeconds = if (action.requiresRoot) 60 else 120
-                                )
+                                when (action.name) {
+                                    "install_terminal_script" -> terminalTools.installScriptPayload(action.payload ?: "{}")
+                                    "download_terminal_binary" -> terminalTools.downloadBinaryPayload(action.payload ?: "{}")
+                                    else -> ShellRunner.execute(
+                                        command = action.command,
+                                        workingDirectory = agent.workspace.workDirectory(),
+                                        root = action.requiresRoot,
+                                        timeoutSeconds = if (action.requiresRoot) 60 else 120,
+                                        extraBinDirectory = terminalTools.binDirectory()
+                                    )
+                                }
                             }
+                        }
+                    },
+                    requestAndroidAccess = { type, name ->
+                        if (type == "runtime") {
+                            val requested = runtimePermissions(name)
+                            if (requested.isEmpty()) {
+                                if (name == "notifications" && Build.VERSION.SDK_INT < 33) "این نسخهٔ Android مجوز زمان اجرای اعلان‌ها نمی‌خواهد."
+                                else "نوع مجوز شناخته‌شده نیست یا در این نسخه پشتیبانی نمی‌شود: $name"
+                            } else {
+                                val missing = requested.filter { context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+                                if (missing.isEmpty()) {
+                                    "دسترسی «$name» از قبل فعال است."
+                                } else {
+                                    val gate = CompletableDeferred<Map<String, Boolean>>()
+                                    permissionGate = gate
+                                    permissionLauncher.launch(missing.toTypedArray())
+                                    val results = gate.await()
+                                    val grantedCount = requested.count {
+                                        context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED || results[it] == true
+                                    }
+                                    val ok = if (name == "location") grantedCount > 0 else grantedCount == requested.size
+                                    if (ok) "اندروید دسترسی «$name» را اعطا کرد."
+                                    else "اندروید دسترسی «$name» را نداد. می‌توانی بعداً از تنظیمات برنامه آن را تغییر بدهی."
+                                }
+                            }
+                        } else {
+                            openSpecialAccessSettings(context, name)
                         }
                     },
                     onEvent = { role, text ->
