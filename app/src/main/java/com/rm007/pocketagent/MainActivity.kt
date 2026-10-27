@@ -347,6 +347,15 @@ private fun PocketAgentApp() {
                             }
                         },
                         actions = {
+                            IconButton(onClick = { showChats = true; chatList = chatStore.listChats() }, enabled = !busy) {
+                                Icon(Icons.Filled.History, contentDescription = "گفتگوها")
+                            }
+                            IconButton(onClick = { showToolbox = true }, enabled = !busy) {
+                                Icon(Icons.Filled.Build, contentDescription = "ابزارهای ترمینال")
+                            }
+                            IconButton(onClick = { showMemory = true }, enabled = !busy) {
+                                Icon(Icons.Filled.Book, contentDescription = "حافظهٔ کلی")
+                            }
                             IconButton(onClick = { folderPicker.launch(null) }, enabled = !busy) {
                                 Icon(Icons.Filled.FolderOpen, contentDescription = "انتخاب پروژه")
                             }
@@ -374,11 +383,13 @@ private fun PocketAgentApp() {
                                     fontSize = 10.sp
                                 )
                                 TextButton(onClick = {
-                                    agent.resetConversation()
-                                    messages = messages + UiMessage("system", "گفت‌وگوی مدل از اینجا تازه شد؛ تغییرات کپی کاری حفظ شدند.")
+                                    currentChatId = chatStore.createChat()
+                                    agent.selectChat(currentChatId)
+                                    chatList = chatStore.listChats()
+                                    input = ""
                                 }, enabled = !busy) {
                                     Icon(Icons.Filled.History, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Text("گفت‌وگوی تازه", fontSize = 10.sp)
+                                    Text("چت جدید", fontSize = 10.sp)
                                 }
                             }
                             Row(
@@ -444,6 +455,73 @@ private fun PocketAgentApp() {
                     }
                 }
             }
+        }
+
+        if (showChats) {
+            AlertDialog(
+                onDismissRequest = { showChats = false },
+                title = { Text("گفتگوها") },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("هر چت تاریخچه و حافظهٔ مدل جداگانه دارد. حافظهٔ کلی از همهٔ چت‌ها مشترک است.", fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+                        chatList.forEach { chat ->
+                            TextButton(
+                                onClick = {
+                                    agent.selectChat(chat.id)
+                                    currentChatId = chat.id
+                                    showChats = false
+                                    input = ""
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Text(chat.title, color = if (chat.id == currentChatId) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                    Text(if (chat.id == currentChatId) "چت فعلی" else "باز کردن گفتگو", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        currentChatId = chatStore.createChat()
+                        agent.selectChat(currentChatId)
+                        chatList = chatStore.listChats()
+                        showChats = false
+                        input = ""
+                    }) { Text("چت جدید") }
+                },
+                dismissButton = { TextButton(onClick = { showChats = false }) { Text("بستن") } }
+            )
+        }
+
+        if (showToolbox) {
+            TerminalToolsDialog(
+                homePath = chatStore.homeDirectory.absolutePath,
+                binPath = terminalTools.binDirectory().absolutePath,
+                installedTools = terminalTools.listTools(),
+                onDismiss = { showToolbox = false }
+            )
+        }
+
+        if (showMemory) {
+            GlobalMemoryDialog(
+                initialValue = chatStore.readGlobalMemory(),
+                onDismiss = { showMemory = false },
+                onSave = { value ->
+                    try {
+                        chatStore.replaceGlobalMemory(value)
+                        showMemory = false
+                        messages = messages + UiMessage("system", "حافظهٔ کلی ذخیره شد؛ در درخواست‌های بعدی به همهٔ گفتگوها داده می‌شود.")
+                    } catch (e: Exception) {
+                        messages = messages + UiMessage("system", "ذخیرهٔ حافظه ناموفق بود: ${e.message ?: e.javaClass.simpleName}")
+                    }
+                }
+            )
         }
 
         if (showAccessSetup) {
