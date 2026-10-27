@@ -27,8 +27,10 @@ class AgentEngine(context: Context) {
     fun saveSettings(endpoint: String, model: String, apiKey: String) {
         val normalizedEndpoint = normalizeChatCompletionsEndpoint(endpoint)
         require(model.isNotBlank()) { "نام مدل در تنظیمات خالی است." }
-        prefs.saveProvider(normalizedEndpoint, model)
+        // Encrypt/persist a newly supplied key before replacing provider settings so a
+        // Keystore failure does not leave a half-updated endpoint behind.
         prefs.saveApiKey(apiKey)
+        prefs.saveProvider(normalizedEndpoint, model)
         resetConversation()
     }
 
