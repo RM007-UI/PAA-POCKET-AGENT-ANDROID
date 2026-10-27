@@ -503,7 +503,7 @@ private fun PocketAgentApp() {
 
         if (showTerminal) {
             PocketTerminalDialog(
-                workingDirectory = if (agent.workspace.isReady()) agent.workspace.workDirectory() else chatStore.homeDirectory,
+                workingDirectory = agent.workspace.workDirectory() ?: chatStore.homeDirectory,
                 homeDirectory = chatStore.homeDirectory,
                 toolDirectory = terminalTools.binDirectory(),
                 onDismiss = { showTerminal = false },
