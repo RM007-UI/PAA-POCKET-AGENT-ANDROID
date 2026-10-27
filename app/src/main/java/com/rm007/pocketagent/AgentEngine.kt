@@ -173,6 +173,39 @@ class AgentEngine(context: Context, private val chatStore: ChatStore = ChatStore
         confirmCommand: suspend (AgentCommandAction) -> String,
         requestAndroidAccess: suspend (type: String, name: String) -> String
     ): String = when (name) {
+        "get_device_info" -> getDeviceInfo()
+        "read_global_memory" -> chatStore.readGlobalMemory().ifBlank { "حافظهٔ کلی هنوز یادداشتی ندارد." }
+        "remember_global" -> chatStore.rememberGlobal(args.optString("note", ""))
+        "list_terminal_tools" -> "پوشهٔ داده‌ها: ${chatStore.homeDirectory.absolutePath}\nپوشهٔ ابزارهای اجرایی خصوصی: ${terminalTools.binDirectory().absolutePath}\n" + terminalTools.listTools()
+        "request_android_permission" -> requestAndroidAccess("runtime", args.optString("permission", ""))
+        "request_special_access" -> requestAndroidAccess("special", args.optString("setting", ""))
+        "open_camera" -> openCamera()
+        "install_terminal_script" -> {
+            val toolName = args.optString("name", "")
+            val script = args.optString("script", "")
+            val payload = JSONObject().put("name", toolName).put("script", script).toString()
+            confirmCommand(AgentCommandAction(
+                "install_terminal_script",
+                "نصب اسکریپت «$toolName» در پوشهٔ ابزارهای برنامه:\n" + script.take(3500) +
+                    if (script.length > 3500) "\n… ادامهٔ اسکریپت در پیش‌نمایش نیامده است." else "",
+                reason,
+                requiresRoot = false,
+                payload = payload
+            ))
+        }
+        "download_terminal_binary" -> {
+            val toolName = args.optString("name", "")
+            val url = args.optString("url", "")
+            val sha256 = args.optString("sha256", "")
+            val payload = JSONObject().put("name", toolName).put("url", url).put("sha256", sha256).toString()
+            confirmCommand(AgentCommandAction(
+                "download_terminal_binary",
+                "دانلود ابزار «$toolName» از HTTPS:\n$url\nSHA-256 مورد انتظار: $sha256",
+                reason,
+                requiresRoot = false,
+                payload = payload
+            ))
+        }
         "workspace_info" -> if (workspace.isReady()) {
             "پروژه: ${workspace.displayName()}\nویرایش‌ها در یک کپی کاری خصوصی انجام می‌شوند. فایل اصلی تنها با دکمهٔ «اعمال تغییرات» در اپ تغییر می‌کند."
         } else {
@@ -222,6 +255,22 @@ class AgentEngine(context: Context, private val chatStore: ChatStore = ChatStore
             else confirmCommand(AgentCommandAction(name, command, reason, requiresRoot = true))
         }
         else -> "این ابزار شناخته‌شده نیست؛ اجرا نشد: $name"
+    }
+
+    private fun getDeviceInfo(): String {
+        val stats = StatFs(appContext.filesDir.absolutePath)
+        return "سازنده: ${Build.MANUFACTURER}\nمدل: ${Build.MODEL}\nنسخهٔ Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT)" +
+            "\nABI: ${Build.SUPPORTED_ABIS.joinToString(", ")}" +
+            "\nفضای آزاد app-private: ${stats.availableBytes / (1024 * 1024)} MB" +
+            "\nپوشهٔ کاری Pocket Agent: ${AgentHome.rootDirectory(appContext).absolutePath}" +
+            "\nشناسه‌های حساس مانند IMEI و شماره‌سریال عمداً خوانده نمی‌شوند."
+    }
+
+    private fun openCamera(): String = try {
+        appContext.startActivity(Intent(MediaStore.ACTION_IMAGE_CAPTURE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        "دوربین پیش‌فرض گوشی باز شد. ثبت و ذخیرهٔ عکس را خودت داخل برنامهٔ دوربین تأیید کن."
+    } catch (e: Exception) {
+        "باز کردن دوربین ناموفق بود: ${e.message ?: e.javaClass.simpleName}"
     }
 
     private data class LaunchableApp(val label: String, val packageName: String, val activityName: String)
@@ -405,6 +454,12 @@ You have these tools:
 - run_command: request a normal shell command. The user must inspect and approve it. Commands run from the private working directory when a project is selected, but this is not a strict OS sandbox. Do not use commands to inspect secrets, unrelated personal data, or files outside the task.
 - run_root_command: request a root command through su. This is highly privileged and ALWAYS requires explicit approval. Explain precisely why the command is needed, keep it narrow, and never use root just because it is available. Never perform irreversible or destructive operations unless the user explicitly requested that exact action and has reviewed the exact command.
 - list_apps/open_app: inspect launchable apps and open the user's requested app.
+- get_device_info: report basic hardware, Android version, supported ABI, and available storage without reading unique identifiers.
+- request_android_permission: request a specific runtime permission through Android only when the current task needs it. Names: camera, microphone, location, photos, notifications.
+- request_special_access: open a system settings page for a permission that the user must enable manually.
+- open_camera: open the default camera UI; the user controls capture and saving.
+- list_terminal_tools, install_terminal_script, download_terminal_binary: inspect private tools, or install a reviewed shell script / an HTTPS binary with a required SHA-256. Every install requires explicit approval. Use trusted official sources; a checksum from the same untrusted host is not independent verification.
+- read_global_memory/remember_global: shared notes apply across chats. Store only stable, useful, non-sensitive preferences/facts; never save passwords, API keys, tokens, or sensitive personal details.
 - open_settings/open_url: open Android settings pages or HTTP(S) links.
 - set_alarm/set_timer: call Android's standard Clock intents. For a wall-clock time like "at 15:00", call set_alarm with hour=15 and minute=0. For a duration like "in 15 minutes", call set_timer with duration_minutes=15. These intents are sent directly to the device's default Clock app. Report honestly that the request was sent; do not claim the alarm/timer was verified unless you can actually confirm the result.
 - get_screen_text/tap_text/tap_screen/swipe_screen/type_text/press_device_button/scroll_screen: interact with the currently visible app through Android Accessibility. These tools only work after the user manually enables Pocket Agent's Accessibility service in Android Settings > Accessibility. Never claim full control is available unless the service reports that it is enabled. Read the visible screen before interacting with an unfamiliar screen. Use precise, user-requested actions; do not confirm purchases, send messages, publish posts, delete data, or commit irreversible changes unless the user explicitly requests that exact action. Screen text used for analysis is sent to the configured AI provider.
@@ -422,6 +477,15 @@ Privacy: file contents and command output used as tool results are sent to the c
               {"type":"function","function":{"name":"search_files","description":"Search source files for a literal text string and return file:line matches.","parameters":{"type":"object","properties":{"query":{"type":"string"},"max_matches":{"type":"integer","minimum":1,"maximum":30}},"required":["query"],"additionalProperties":false}}},
               {"type":"function","function":{"name":"write_file","description":"Write or replace a file in the private working copy. The original project will only change after user review and Apply Changes.","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"reason":{"type":"string"}},"required":["path","content","reason"],"additionalProperties":false}}},
               {"type":"function","function":{"name":"delete_file","description":"Stage deletion of one file in the private working copy. Directories cannot be deleted with this tool.","parameters":{"type":"object","properties":{"path":{"type":"string"},"reason":{"type":"string"}},"required":["path","reason"],"additionalProperties":false}}},
+              {"type":"function","function":{"name":"get_device_info","description":"Read basic device model, Android version, CPU ABI and app-private available storage; do not return unique sensitive identifiers.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
+              {"type":"function","function":{"name":"read_global_memory","description":"Read the shared non-sensitive memory used across all chats.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
+              {"type":"function","function":{"name":"remember_global","description":"Append one concise, stable, non-sensitive preference or fact to shared memory. Never store credentials or sensitive personal details.","parameters":{"type":"object","properties":{"note":{"type":"string","maxLength":700}},"required":["note"],"additionalProperties":false}}},
+              {"type":"function","function":{"name":"list_terminal_tools","description":"Show installed private terminal tools and their storage paths.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
+              {"type":"function","function":{"name":"install_terminal_script","description":"Prepare a shell script in Pocket Agent's private bin folder; show script preview and require explicit approval before saving.","parameters":{"type":"object","properties":{"name":{"type":"string"},"script":{"type":"string","maxLength":64000},"reason":{"type":"string"}},"required":["name","script","reason"],"additionalProperties":false}}},
+              {"type":"function","function":{"name":"download_terminal_binary","description":"Download an executable over HTTPS after explicit user approval. A 64-hex SHA-256 is mandatory and verified before installation.","parameters":{"type":"object","properties":{"name":{"type":"string"},"url":{"type":"string"},"sha256":{"type":"string","minLength":64,"maxLength":64},"reason":{"type":"string"}},"required":["name","url","sha256","reason"],"additionalProperties":false}}},
+              {"type":"function","function":{"name":"request_android_permission","description":"Ask Android for one runtime permission only when needed. Allowed: camera, microphone, location, photos, notifications.","parameters":{"type":"object","properties":{"permission":{"type":"string","enum":["camera","microphone","location","photos","notifications"]}},"required":["permission"],"additionalProperties":false}}},
+              {"type":"function","function":{"name":"request_special_access","description":"Open settings for user-controlled special access; user must enable it manually. Allowed: accessibility, all_files, usage_access, overlay, notification_listener, app_details.","parameters":{"type":"object","properties":{"setting":{"type":"string","enum":["accessibility","all_files","usage_access","overlay","notification_listener","app_details"]}},"required":["setting"],"additionalProperties":false}}},
+              {"type":"function","function":{"name":"open_camera","description":"Open the default Android camera UI so the user can take a photo directly in the camera app.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
               {"type":"function","function":{"name":"run_command","description":"Request execution of a command through the Android app-user shell. The exact command is shown for explicit approval before it runs.","parameters":{"type":"object","properties":{"command":{"type":"string"},"reason":{"type":"string"}},"required":["command","reason"],"additionalProperties":false}}},
               {"type":"function","function":{"name":"run_root_command","description":"Request a high-privilege command through su/KernelSU on the user's Android phone. The exact command is shown for explicit approval before it runs.","parameters":{"type":"object","properties":{"command":{"type":"string"},"reason":{"type":"string"}},"required":["command","reason"],"additionalProperties":false}}},
               {"type":"function","function":{"name":"list_apps","description":"List launchable apps visible to Android. Use to identify the exact app before opening it.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
