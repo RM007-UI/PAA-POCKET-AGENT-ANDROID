@@ -92,7 +92,7 @@ internal object TermuxBridge {
                 shared
             }
         } catch (e: Exception) {
-            return setupInstructions(e.message ?: e.javaClass.simpleName, workingDirectory != null)
+            throw IllegalStateException(e.message ?: e.javaClass.simpleName, e)
         }
         val cwd = mirror ?: File(TERMUX_HOME)
         val shellCommand = "cd ${shellQuote(cwd.absolutePath)} && exec bash -i"
@@ -127,10 +127,14 @@ internal object TermuxBridge {
             "Termux command is empty or too long."
         }
         val timeout = timeoutSeconds.coerceIn(1, 300)
-        val mirror = workingDirectory?.let {
-            val shared = sharedWorkspaceDirectory(it)
-            syncDirectory(it, shared)
-            shared
+        val mirror = try {
+            workingDirectory?.let {
+                val shared = sharedWorkspaceDirectory(it)
+                syncDirectory(it, shared)
+                shared
+            }
+        } catch (e: Exception) {
+            return setupInstructions(e.message ?: e.javaClass.simpleName, workingDirectory != null)
         }
         val cwd = mirror ?: File(TERMUX_HOME)
         val id = requestIds.incrementAndGet()
