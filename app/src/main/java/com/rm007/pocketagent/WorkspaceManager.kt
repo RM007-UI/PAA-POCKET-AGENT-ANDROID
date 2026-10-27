@@ -16,7 +16,9 @@ class WorkspaceManager(private val context: Context) {
     private val prefs = context.getSharedPreferences("pocket_agent_workspace", Context.MODE_PRIVATE)
     private val legacyRootCache = File(context.filesDir, "agent-workspaces")
     private val rootCache = File(AgentHome.rootDirectory(context), "workspaces").apply {
-        if (!exists() && legacyRootCache.isDirectory) legacyRootCache.copyRecursively(this, overwrite = true)
+        if (legacyRootCache.isDirectory && listFiles().isNullOrEmpty()) {
+            legacyRootCache.copyRecursively(this, overwrite = true)
+        }
         mkdirs()
     }
 
