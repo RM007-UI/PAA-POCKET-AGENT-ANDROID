@@ -11,6 +11,7 @@ import javax.net.ssl.HttpsURLConnection
 class TerminalTools(context: Context) {
     private val appContext = context.applicationContext
     fun binDirectory(): File = AgentHome.privateBinDirectory(appContext)
+    fun toolFile(name: String): File = File(binDirectory(), validateName(name))
 
     fun listTools(): String {
         val files = binDirectory().listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()

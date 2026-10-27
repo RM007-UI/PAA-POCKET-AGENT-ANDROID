@@ -13,6 +13,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -59,6 +61,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +82,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -134,7 +138,8 @@ private fun PocketAgentApp() {
     var showSettings by remember { mutableStateOf(false) }
     var showChats by remember { mutableStateOf(false) }
     var showToolbox by remember { mutableStateOf(false) }
-    var showTerminal by remember { mutableStateOf(false) }
+    var showTermuxHelp by remember { mutableStateOf(false) }
+    var termuxHelpText by remember { mutableStateOf("") }
     var showMemory by remember { mutableStateOf(false) }
     var showChanges by remember { mutableStateOf(false) }
     var showApplyConfirm by remember { mutableStateOf(false) }
@@ -227,6 +232,35 @@ private fun PocketAgentApp() {
         }
     }
 
+    fun openTermuxTerminal() {
+        if (busy) return
+        val projectDirectory = agent.workspace.workDirectory()
+        busy = true
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    TermuxBridge.openInteractiveTerminal(context, projectDirectory)
+                }
+                messages = messages + UiMessage(
+                    "system",
+                    if (projectDirectory != null) {
+                        "ترموکس باز شد. پوشهٔ کاریِ مشترک آماده است؛ بعد از برگشت به Pocket Agent تغییرات آن وارد کپی کاری پروژه و فهرست Changes می‌شوند."
+                    } else {
+                        "ترموکس باز شد. می‌توانی ابزارها را از طریق pkg نصب کنی."
+                    }
+                )
+            } catch (e: Exception) {
+                termuxHelpText = TermuxBridge.setupInstructions(
+                    e.message ?: e.javaClass.simpleName,
+                    projectDirectory != null
+                )
+                showTermuxHelp = true
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     fun pushToGitHub() {
         if (busy) return
         if (!agent.workspace.isReady()) {
@@ -251,6 +285,44 @@ private fun PocketAgentApp() {
                 messages = messages + UiMessage("system", "خواندن تغییرات GitHub ناموفق بود: ${e.message ?: e.javaClass.simpleName}")
             }
         }
+    }
+
+    val appLifecycle = (context as? ComponentActivity)?.lifecycle
+    var pausedForTermux by remember { mutableStateOf(false) }
+    DisposableEffect(appLifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> {
+                    if (TermuxBridge.hasPendingInteractiveSync()) pausedForTermux = true
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    if (pausedForTermux) {
+                        pausedForTermux = false
+                        val pendingSync = TermuxBridge.takePendingInteractiveSync()
+                        if (pendingSync != null) {
+                            scope.launch {
+                                try {
+                                    withContext(Dispatchers.IO) { TermuxBridge.syncBack(pendingSync) }
+                                    messages = messages + UiMessage(
+                                        "system",
+                                        "تغییرات ترموکس با کپی کاری پروژه همگام شد."
+                                    )
+                                    refreshChanges(open = false)
+                                } catch (e: Exception) {
+                                    messages = messages + UiMessage(
+                                        "system",
+                                        "همگام‌سازی ترموکس ناموفق بود: ${e.message ?: e.javaClass.simpleName}. کپی مشترک برای بازیابی باقی مانده است."
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                else -> Unit
+            }
+        }
+        appLifecycle?.addObserver(observer)
+        onDispose { appLifecycle?.removeObserver(observer) }
     }
 
     fun sendMessage() {
@@ -278,15 +350,49 @@ private fun PocketAgentApp() {
                         } else {
                             withContext(Dispatchers.IO) {
                                 when (action.name) {
-                                    "install_terminal_script" -> terminalTools.installScriptPayload(action.payload ?: "{}")
-                                    "download_terminal_binary" -> terminalTools.downloadBinaryPayload(action.payload ?: "{}")
-                                    else -> ShellRunner.execute(
-                                        command = action.command,
-                                        workingDirectory = agent.workspace.workDirectory(),
-                                        root = action.requiresRoot,
-                                        timeoutSeconds = if (action.requiresRoot) 60 else 120,
-                                        extraBinDirectory = terminalTools.binDirectory()
-                                    )
+                                    "install_terminal_script" -> {
+                                        val payload = action.payload ?: "{}"
+                                        val localResult = terminalTools.installScriptPayload(payload)
+                                        val toolName = JSONObject(payload).optString("name", "")
+                                        val termuxResult = if (toolName.isNotBlank() && TermuxBridge.isInstalled(context)) {
+                                            TermuxBridge.importTool(context, terminalTools.toolFile(toolName))
+                                        } else ""
+                                        listOf(localResult, termuxResult).filter { it.isNotBlank() }.joinToString("\n")
+                                    }
+                                    "download_terminal_binary" -> {
+                                        val payload = action.payload ?: "{}"
+                                        val localResult = terminalTools.downloadBinaryPayload(payload)
+                                        val toolName = JSONObject(payload).optString("name", "")
+                                        val termuxResult = if (toolName.isNotBlank() && TermuxBridge.isInstalled(context)) {
+                                            TermuxBridge.importTool(context, terminalTools.toolFile(toolName))
+                                        } else ""
+                                        listOf(localResult, termuxResult).filter { it.isNotBlank() }.joinToString("\n")
+                                    }
+                                    else -> {
+                                        val workDirectory = agent.workspace.workDirectory()
+                                        when {
+                                            action.requiresRoot -> ShellRunner.execute(
+                                                command = action.command,
+                                                workingDirectory = workDirectory,
+                                                root = true,
+                                                timeoutSeconds = 60,
+                                                extraBinDirectory = terminalTools.binDirectory()
+                                            )
+                                            TermuxBridge.isInstalled(context) -> TermuxBridge.execute(
+                                                context = context,
+                                                command = action.command,
+                                                workingDirectory = workDirectory,
+                                                timeoutSeconds = 120
+                                            )
+                                            else -> ShellRunner.execute(
+                                                command = action.command,
+                                                workingDirectory = workDirectory,
+                                                root = false,
+                                                timeoutSeconds = 120,
+                                                extraBinDirectory = terminalTools.binDirectory()
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -352,8 +458,11 @@ private fun PocketAgentApp() {
                             IconButton(onClick = { showChats = true; chatList = chatStore.listChats() }, enabled = !busy) {
                                 Icon(Icons.Filled.History, contentDescription = "گفتگوها")
                             }
-                            IconButton(onClick = { showTerminal = true }, enabled = !busy) {
-                                Icon(Icons.Filled.Terminal, contentDescription = "ترمینال")
+                            IconButton(onClick = { openTermuxTerminal() }, enabled = !busy) {
+                                Icon(Icons.Filled.Terminal, contentDescription = "ترمینال Termux")
+                            }
+                            IconButton(onClick = { showToolbox = true }, enabled = !busy) {
+                                Icon(Icons.Filled.Build, contentDescription = "ابزارهای ترمینال")
                             }
                             IconButton(onClick = { showMemory = true }, enabled = !busy) {
                                 Icon(Icons.Filled.Book, contentDescription = "حافظهٔ کلی")
@@ -501,25 +610,68 @@ private fun PocketAgentApp() {
             )
         }
 
-        if (showTerminal) {
-            PocketTerminalDialog(
-                workingDirectory = agent.workspace.workDirectory() ?: chatStore.homeDirectory,
-                homeDirectory = chatStore.homeDirectory,
-                toolDirectory = terminalTools.binDirectory(),
-                onDismiss = { showTerminal = false },
-                onOpenTools = {
-                    showTerminal = false
-                    showToolbox = true
-                }
-            )
-        }
-
         if (showToolbox) {
             TerminalToolsDialog(
                 homePath = chatStore.homeDirectory.absolutePath,
                 binPath = terminalTools.binDirectory().absolutePath,
                 installedTools = terminalTools.listTools(),
                 onDismiss = { showToolbox = false }
+            )
+        }
+
+        if (showTermuxHelp) {
+            AlertDialog(
+                onDismissRequest = { showTermuxHelp = false },
+                title = { Text("راه‌اندازی اتصال Termux") },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(termuxHelpText)
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        try {
+                            val launch = context.packageManager.getLaunchIntentForPackage("com.termux")
+                            if (launch != null) context.startActivity(launch)
+                            else messages = messages + UiMessage("system", "Termux نصب نیست؛ ابتدا برنامهٔ Termux را نصب کن.")
+                        } catch (e: Exception) {
+                            messages = messages + UiMessage("system", "بازکردن Termux ناموفق بود: ${e.message ?: e.javaClass.simpleName}")
+                        }
+                        showTermuxHelp = false
+                    }) { Text("بازکردن Termux") }
+                },
+                dismissButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(onClick = {
+                            try {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                )
+                            } catch (_: Exception) { }
+                            showTermuxHelp = false
+                        }) { Text("مجوز اجرا") }
+                        TextButton(onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                try {
+                                    context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                            Uri.parse("package:${context.packageName}")
+                                        )
+                                    )
+                                } catch (_: Exception) { }
+                            }
+                            showTermuxHelp = false
+                        }) { Text("دسترسی فایل") }
+                        TextButton(onClick = { showTermuxHelp = false }) { Text("بستن") }
+                    }
+                }
             )
         }
 
