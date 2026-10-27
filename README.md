@@ -10,6 +10,8 @@ Pocket Agent is a Persian-first Android app for coding tasks on the phone. It is
 - Private working copy: the agent inspects and edits a local copy under the app's private storage. The original selected folder is untouched until the user chooses **Apply changes**.
 - Project tools: list files, read text files, literal source search, stage file edits, stage single-file deletions.
 - Change review: shows file-level added/edited/deleted changes and a before/after text preview; user can apply or discard the staged changes.
+- Native Android device actions: open installed apps and settings, open HTTP(S) links, create alarm/timer requests through Android Clock, and inspect/interact with the currently visible app through an explicitly user-enabled Accessibility service.
+- Accessibility UI tools include screen-text inspection, tap by text or coordinates, swipe, enter text in the focused field, scroll, and Android Back/Home/Recents/notification-shade actions. Password fields are excluded from screen text and text entry.
 - Normal shell and `su`/KernelSU command tools. The exact command and the agent's reason are shown for user approval. High-risk command patterns show extra warnings.
 - Multi-step tool-calling loop with a maximum of 12 rounds, bounded file/output sizes, command timeouts, and an automatic context reset when it gets large.
 - GitHub sync workflow: after reviewing the remote change list, send selected workspace changes to a configured `owner/repo` branch as one Git commit through the GitHub REST API. The token is encrypted at rest with Android Keystore and is never included in model prompts or tool results.
@@ -20,13 +22,15 @@ Pocket Agent is a Persian-first Android app for coding tasks on the phone. It is
 - This is a custom Codex-style MVP, **not the official Codex Android app and not feature parity with Codex**. It does not include official Codex account sign-in, hosted Codex task environments, full GitHub issue/PR/worktree management, parallel-agent orchestration, MCP server management, skills/automations, streaming tokens, or the full official Codex sandbox.
 - The model connection uses a provider-compatible Chat Completions API with tool/function calling. Provider compatibility varies. You need an API key and the provider may charge separately.
 - Commands run with the app UID unless the user approves a `run_root_command`. The app does not provide a strict OS-enforced sandbox for shell commands; a command can reach beyond the project directory. Review each command carefully, especially root commands.
-- File contents and command output returned as tool results are sent to the configured AI provider for analysis. Do not select private folders or send secrets unless you trust that provider.
+- File contents, command output, and visible on-screen text explicitly read through Accessibility tools are sent to the configured AI provider for analysis. The Accessibility service does not continuously save screen events, but it can access sensitive visible information when called; enable it only if you trust the app and provider. Password-field text is not returned by the screen reader.
 - The source folder copy excludes generated/dependency folders such as `.git`, `node_modules`, `build`, `.gradle`, `dist`, and `target`, and limits workspace import to 10,000 files / 150 MB. It does not import a Git history.
 - GitHub sync creates a single commit on the configured existing branch, limited to 40 changed files and 15 MB per push (with a 5 MB per-file limit). It does not create repositories or branches and does not open pull requests. A fine-grained PAT with **Contents: Read and write** permission for the target repository is required. Review the remote diff before sending; API errors or branch conflicts stop the operation. It uploads only changed files; the selected project snapshot should match the starting state of the target branch. It is not a tool for initializing an empty repository or uploading every unchanged file.
 - The app only stores the GitHub token encrypted at rest. Anyone who can use the unlocked app and its configured token may be able to push to the configured repository, so prefer a fine-grained token scoped to one repository and revoke it if the device is lost.
 - Android does not include all developer tools by default. `git`, Gradle, Python, Node, or project-specific toolchains may be missing; a corresponding GitHub Actions workflow is the intended remote build path.
 - The APK is debug-signed. Do not treat it as a production release.
-- GitHub Actions build was verified successfully on 2026-10-27 (run #2; artifact `pocket-agent-debug-apk`). Installation and functional testing on a real Android device have not yet been performed.
+- Accessibility-based screen control works only after the user manually enables **Pocket Agent — کنترل گوشی** in Android Settings → Accessibility. Android, system UI, banking/security apps, or apps that draw their interface outside the accessibility tree may restrict some actions. Root commands also require a working `su`/KernelSU grant and explicit approval.
+- Android Clock intents open the Clock app with a proposed alarm or timer; the user may still need to confirm or start it in Clock.
+- GitHub Actions build was verified for earlier revisions. The current phone-control revision needs a fresh CI build; no physical-device functional test has yet been completed.
 
 ## Build using GitHub Actions
 
@@ -41,11 +45,14 @@ For future changes, push to `main` (changes under `app/` or build configuration 
 3. Ask the agent to inspect or modify a specific codebase. It can read and edit the private working copy.
 4. Inspect **Changes** and preview individual files. Tap **Apply changes** only after reviewing the changes you want to keep.
 5. Commands always require approval. Root commands can access the device with superuser permissions; only approve commands you understand.
-6. In Settings, optionally configure `owner/repo`, the target branch, and a fine-grained GitHub token. In Changes, inspect the *GitHub changes* file list and preview, then tap **ارسال به GitHub** to create a commit. This push is separate from applying changes to the original SAF folder. The remote branch must already contain the same project baseline for changed-file-only sync to be meaningful.
+6. To control other apps, manually enable **Pocket Agent — کنترل گوشی** from Android Settings → Accessibility. This is a sensitive permission: visible screen text may be sent to your selected AI provider when the agent reads the screen. You can disable the service in Android settings at any time.
+7. You can ask the agent to open apps/settings, set an alarm for a clock time (for example 15:00), or start a countdown timer (for example 15 minutes). For app UI interactions, it must read the screen and use Accessibility tools; some apps may block automation.
+8. In Settings, optionally configure `owner/repo`, the target branch, and a fine-grained GitHub token. In Changes, inspect the *GitHub changes* file list and preview, then tap **ارسال به GitHub** to create a commit. This push is separate from applying changes to the original SAF folder. The remote branch must already contain the same project baseline for changed-file-only sync to be meaningful.
 
 ## Design overview
 
-- `AgentEngine.kt`: model API, agent loop, tool schemas and tool routing.
+- `AgentEngine.kt`: model API, agent loop, native Android intent tools and tool routing.
+- `PhoneAccessibilityService.kt`: opt-in on-device screen reading and UI interaction.
 - `WorkspaceManager.kt`: SAF import, private worktree, separate local/remote baseline snapshots, bounded source operations, diff preview, apply/discard.
 - `ShellRunner.kt`: bounded shell/root command execution and high-risk command heuristics.
 - `SecurePrefs.kt`: provider settings plus encrypted API-key / GitHub-token storage.
