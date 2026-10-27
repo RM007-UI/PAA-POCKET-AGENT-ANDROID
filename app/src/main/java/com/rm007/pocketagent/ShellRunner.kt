@@ -10,15 +10,25 @@ import kotlin.concurrent.thread
 object ShellRunner {
     private const val MAX_OUTPUT_CHARS = 18_000
 
-    fun execute(command: String, workingDirectory: java.io.File?, root: Boolean, timeoutSeconds: Long = 90): String {
+    fun execute(
+        command: String,
+        workingDirectory: java.io.File?,
+        root: Boolean,
+        timeoutSeconds: Long = 90,
+        extraBinDirectory: java.io.File? = null
+    ): String {
         if (command.isBlank()) return "فرمان خالی بود؛ چیزی اجرا نشد."
         if (command.length > 12_000) return "فرمان بیش از حد طولانی است و اجرا نشد."
         return try {
+            val pathPrefix = extraBinDirectory?.takeIf { it.isDirectory }?.absolutePath
+                ?.let { "export PATH=${shellQuote(it)}:\$PATH; " }.orEmpty()
             val processBuilder = if (root) {
                 val cd = workingDirectory?.absolutePath?.let { "cd ${shellQuote(it)} && " }.orEmpty()
-                ProcessBuilder("su", "-c", cd + command)
+                ProcessBuilder("su", "-c", pathPrefix + cd + command)
             } else {
-                ProcessBuilder("sh", "-c", command).apply { if (workingDirectory != null) directory(workingDirectory) }
+                ProcessBuilder("sh", "-c", pathPrefix + command).apply {
+                    if (workingDirectory != null) directory(workingDirectory)
+                }
             }
             processBuilder.redirectErrorStream(true)
             val process = processBuilder.start()
