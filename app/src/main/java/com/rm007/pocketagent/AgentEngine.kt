@@ -292,10 +292,10 @@ class AgentEngine(context: Context) {
                 .putExtra(AlarmClock.EXTRA_HOUR, hour)
                 .putExtra(AlarmClock.EXTRA_MINUTES, minute)
                 .putExtra(AlarmClock.EXTRA_MESSAGE, label.take(80))
-                .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+                .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             appContext.startActivity(intent)
-            "درخواست تنظیم زنگ ساعت $hour:${minute.toString().padStart(2, '0')} به برنامهٔ ساعت گوشی فرستاده شد. اگر صفحهٔ ساعت باز شد، تنظیم را آنجا تأیید کن."
+            "درخواست تنظیم زنگ ساعت $hour:${minute.toString().padStart(2, '0')} به برنامهٔ ساعت گوشی فرستاده شد؛ Android Clock باید زنگ را تنظیم کند."
         } catch (e: Exception) {
             "باز کردن تنظیم زنگ ساعت ناموفق بود: ${e.message ?: e.javaClass.simpleName}"
         }
@@ -309,10 +309,10 @@ class AgentEngine(context: Context) {
             val intent = Intent(AlarmClock.ACTION_SET_TIMER)
                 .putExtra(AlarmClock.EXTRA_LENGTH, durationMinutes * 60)
                 .putExtra(AlarmClock.EXTRA_MESSAGE, label.take(80))
-                .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
+                .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             appContext.startActivity(intent)
-            "درخواست تایمر $durationMinutes دقیقه‌ای به برنامهٔ ساعت گوشی فرستاده شد. اگر صفحهٔ ساعت باز شد، تایمر را شروع یا تأیید کن."
+            "درخواست تایمر $durationMinutes دقیقه‌ای به برنامهٔ ساعت گوشی فرستاده شد؛ Android Clock باید تایمر را شروع کند."
         } catch (e: Exception) {
             "باز کردن تایمر ناموفق بود: ${e.message ?: e.javaClass.simpleName}"
         }
