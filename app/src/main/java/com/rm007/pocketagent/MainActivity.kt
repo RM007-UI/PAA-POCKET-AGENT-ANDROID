@@ -656,8 +656,13 @@ private fun ProviderSettingsDialog(
                 )
                 OutlinedTextField(
                     value = endpoint, onValueChange = { endpoint = it }, modifier = Modifier.fillMaxWidth(),
-                    label = { Text("آدرس کامل API") }, placeholder = { Text("https://api.openai.com/v1/chat/completions") },
+                    label = { Text("آدرس API (پایه یا کامل)") }, placeholder = { Text("https://openrouter.ai/api/v1") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), singleLine = true
+                )
+                Text(
+                    "آدرس پایهٔ OpenRouter یا OpenAI کافی است؛ برنامه مسیر /chat/completions را خودش اضافه می‌کند. اگر این مسیر را از قبل وارد کرده‌ای، دوباره اضافه نمی‌شود.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.secondary
                 )
                 OutlinedTextField(value = model, onValueChange = { model = it }, modifier = Modifier.fillMaxWidth(), label = { Text("نام مدل") }, singleLine = true)
                 OutlinedTextField(
