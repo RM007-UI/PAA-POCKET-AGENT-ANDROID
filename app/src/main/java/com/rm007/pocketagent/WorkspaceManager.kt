@@ -14,7 +14,11 @@ import java.security.MessageDigest
  */
 class WorkspaceManager(private val context: Context) {
     private val prefs = context.getSharedPreferences("pocket_agent_workspace", Context.MODE_PRIVATE)
-    private val rootCache = File(context.filesDir, "agent-workspaces")
+    private val legacyRootCache = File(context.filesDir, "agent-workspaces")
+    private val rootCache = File(AgentHome.rootDirectory(context), "workspaces").apply {
+        if (!exists() && legacyRootCache.isDirectory) legacyRootCache.copyRecursively(this, overwrite = true)
+        mkdirs()
+    }
 
     data class Change(
         val path: String,
