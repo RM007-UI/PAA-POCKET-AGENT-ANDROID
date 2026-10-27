@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -133,6 +134,7 @@ private fun PocketAgentApp() {
     var showSettings by remember { mutableStateOf(false) }
     var showChats by remember { mutableStateOf(false) }
     var showToolbox by remember { mutableStateOf(false) }
+    var showTerminal by remember { mutableStateOf(false) }
     var showMemory by remember { mutableStateOf(false) }
     var showChanges by remember { mutableStateOf(false) }
     var showApplyConfirm by remember { mutableStateOf(false) }
@@ -350,8 +352,8 @@ private fun PocketAgentApp() {
                             IconButton(onClick = { showChats = true; chatList = chatStore.listChats() }, enabled = !busy) {
                                 Icon(Icons.Filled.History, contentDescription = "گفتگوها")
                             }
-                            IconButton(onClick = { showToolbox = true }, enabled = !busy) {
-                                Icon(Icons.Filled.Build, contentDescription = "ابزارهای ترمینال")
+                            IconButton(onClick = { showTerminal = true }, enabled = !busy) {
+                                Icon(Icons.Filled.Terminal, contentDescription = "ترمینال")
                             }
                             IconButton(onClick = { showMemory = true }, enabled = !busy) {
                                 Icon(Icons.Filled.Book, contentDescription = "حافظهٔ کلی")
@@ -496,6 +498,19 @@ private fun PocketAgentApp() {
                     }) { Text("چت جدید") }
                 },
                 dismissButton = { TextButton(onClick = { showChats = false }) { Text("بستن") } }
+            )
+        }
+
+        if (showTerminal) {
+            PocketTerminalDialog(
+                workingDirectory = if (agent.workspace.isReady()) agent.workspace.workDirectory() else chatStore.homeDirectory,
+                homeDirectory = chatStore.homeDirectory,
+                toolDirectory = terminalTools.binDirectory(),
+                onDismiss = { showTerminal = false },
+                onOpenTools = {
+                    showTerminal = false
+                    showToolbox = true
+                }
             )
         }
 

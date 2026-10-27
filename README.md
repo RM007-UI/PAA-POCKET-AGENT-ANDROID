@@ -76,3 +76,11 @@ gradle assembleDebug
 ```
 
 The APK is produced at `app/build/outputs/apk/debug/app-debug.apk`.
+
+
+## Interactive terminal (v0.8.0)
+
+- The terminal button opens an interactive PTY-backed Android shell with a real terminal emulator, ANSI color support, keyboard input, terminal shortcuts, and a persistent shell process while the terminal screen is open.
+- The shell starts in the selected project's private working copy (or the Pocket Agent home folder if no project is selected). Its PATH includes the app's private executable-tool directory plus Android system binaries.
+- This is an **Android system shell**, not a bundled Debian/Ubuntu environment: the app does not ship `apt`/`pkg`, Python, Git, Node.js or a full Linux userland. Compatible standalone tools can be installed separately through the terminal tools screen. The shell normally runs under the app UID; typing `su` may invoke a root manager if the device supports it.
+- The terminal view uses the Termux terminal-emulator and terminal-view libraries (v0.118.0); see [the upstream source and license](https://github.com/termux/termux-app/tree/v0.118.0).
