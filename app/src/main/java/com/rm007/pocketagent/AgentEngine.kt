@@ -4,7 +4,10 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.StatFs
 import android.provider.AlarmClock
+import android.provider.MediaStore
 import android.provider.Settings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -13,21 +16,46 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
- data class AgentCommandAction(
+data class AgentCommandAction(
     val name: String,
     val command: String,
     val reason: String,
-    val requiresRoot: Boolean
+    val requiresRoot: Boolean,
+    val payload: String? = null
 )
 
-class AgentEngine(context: Context) {
+class AgentEngine(context: Context, private val chatStore: ChatStore = ChatStore(context.applicationContext)) {
     private val appContext = context.applicationContext
     private val prefs = SecurePrefs(appContext)
     val workspace = WorkspaceManager(appContext)
+    private val terminalTools = TerminalTools(appContext)
     private val history = mutableListOf<JSONObject>()
+    private var currentChatId: String = chatStore.currentChatId()
 
     fun hasApiKey(): Boolean = prefs.apiKey().isNotBlank()
-    fun resetConversation() = history.clear()
+
+    fun selectChat(chatId: String) {
+        chatStore.selectChat(chatId)
+        currentChatId = chatId
+        history.clear()
+        val saved = chatStore.loadModelHistory(chatId)
+        for (i in 0 until saved.length()) saved.optJSONObject(i)?.let { history += JSONObject(it.toString()) }
+    }
+
+    fun resetConversation() {
+        history.clear()
+        saveHistory()
+    }
+
+    private fun saveHistory() {
+        val array = JSONArray()
+        history.forEach { array.put(it) }
+        chatStore.saveModelHistory(currentChatId, array)
+    }
+
+    private fun systemPromptWithMemory(): String =
+        SYSTEM_PROMPT + "\n\nGLOBAL MEMORY (shared across chats; user-managed, do not store secrets):\n" +
+            chatStore.readGlobalMemory().ifBlank { "(no global memory saved)" }.take(24_000)
 
     fun saveSettings(endpoint: String, model: String, apiKey: String) {
         val normalizedEndpoint = normalizeChatCompletionsEndpoint(endpoint)
@@ -72,6 +100,7 @@ class AgentEngine(context: Context) {
     suspend fun runTask(
         userText: String,
         confirmCommand: suspend (AgentCommandAction) -> String,
+        requestAndroidAccess: suspend (type: String, name: String) -> String,
         onEvent: suspend (role: String, text: String) -> Unit
     ): String {
         val settings = ProviderSettings(
@@ -86,12 +115,15 @@ class AgentEngine(context: Context) {
         }
         require(userText.isNotBlank()) { "پیام خالی است." }
 
-        // Start a fresh model context before it becomes excessive. The visible transcript remains in the UI.
-        if (history.size > 54 || history.isEmpty()) {
+        // Restore this chat's model history, refreshing the shared memory each turn.
+        if (history.size > 54 || history.isEmpty() || history.firstOrNull()?.optString("role") != "system") {
             history.clear()
-            history += JSONObject().put("role", "system").put("content", SYSTEM_PROMPT)
+            history += JSONObject().put("role", "system").put("content", systemPromptWithMemory())
+        } else {
+            history[0].put("content", systemPromptWithMemory())
         }
         history += JSONObject().put("role", "user").put("content", userText)
+        saveHistory()
 
         repeat(MAX_AGENT_ROUNDS) {
             val response = withContext(Dispatchers.IO) { requestCompletion(settings, JSONArray(history)) }
@@ -101,6 +133,7 @@ class AgentEngine(context: Context) {
             val calls = message.optJSONArray("tool_calls")
             if (calls == null || calls.length() == 0) {
                 val answer = message.optString("content", "").trim()
+                saveHistory()
                 return answer.ifBlank { "پاسخ متنی برنگشت. نام مدل و سازگاری API با قالب Chat Completions را بررسی کن." }
             }
 
@@ -114,7 +147,7 @@ class AgentEngine(context: Context) {
                 val reason = args.optString("reason", "مدل برای این ابزار دلیل مشخصی نفرستاد.").trim()
                 onEvent("tool", "ابزار درخواستی: $name\n${reason.take(350)}")
                 val output = try {
-                    executeTool(name, args, reason, confirmCommand)
+                    executeTool(name, args, reason, confirmCommand, requestAndroidAccess)
                 } catch (e: Exception) {
                     "ابزار با خطا روبه‌رو شد: ${e.message ?: e.javaClass.simpleName}"
                 }
@@ -124,10 +157,12 @@ class AgentEngine(context: Context) {
                     .put("role", "tool")
                     .put("tool_call_id", id)
                     .put("content", boundedOutput)
+                saveHistory()
                 onEvent("tool", boundedOutput.take(1_800) + if (boundedOutput.length > 1_800) "\n… ادامهٔ خروجی برای تحلیل به مدل ارسال شد." else "")
             }
         }
         history += JSONObject().put("role", "assistant").put("content", "The action limit was reached before the task was fully completed. The user can ask to continue.")
+        saveHistory()
         return "این کار پس از $MAX_AGENT_ROUNDS دور ابزار متوقف شد تا چرخهٔ بی‌پایان ایجاد نشود. نتیجه‌های فعلی در گفت‌وگو باقی‌اند؛ می‌توانی بگویی ادامه بدهد."
     }
 
@@ -135,7 +170,8 @@ class AgentEngine(context: Context) {
         name: String,
         args: JSONObject,
         reason: String,
-        confirmCommand: suspend (AgentCommandAction) -> String
+        confirmCommand: suspend (AgentCommandAction) -> String,
+        requestAndroidAccess: suspend (type: String, name: String) -> String
     ): String = when (name) {
         "workspace_info" -> if (workspace.isReady()) {
             "پروژه: ${workspace.displayName()}\nویرایش‌ها در یک کپی کاری خصوصی انجام می‌شوند. فایل اصلی تنها با دکمهٔ «اعمال تغییرات» در اپ تغییر می‌کند."
