@@ -32,7 +32,7 @@ object AgentHome {
 
 class ChatStore(context: Context) {
     val homeDirectory: File = AgentHome.rootDirectory(context.applicationContext)
-    private val chatsDirectory = File(homeDirectory, "chats").apply { mkdirs() }
+    private val chatsDirectory = File(homeDirectory, "chats").apply { check(isDirectory || mkdirs()) { "ساخت پوشهٔ گفتگوها ناموفق بود: $absolutePath" } }
     private val indexFile = File(homeDirectory, "chat-index.json")
     private val prefs = context.applicationContext.getSharedPreferences("pocket_agent_chats", Context.MODE_PRIVATE)
     private val memoryFile = File(homeDirectory, "GLOBAL_MEMORY.md")
@@ -150,7 +150,7 @@ class ChatStore(context: Context) {
 
     private fun chatFile(id: String, name: String): File {
         require(validId(id)) { "شناسهٔ گفت‌وگو نامعتبر است." }
-        return File(File(chatsDirectory, id).apply { mkdirs() }, name)
+        return File(File(chatsDirectory, id).apply { check(isDirectory || mkdirs()) { "ساخت پوشهٔ این گفتگو ناموفق بود: $absolutePath" } }, name)
     }
 
     private fun writeIndex(chats: List<ChatInfo>) {
@@ -162,8 +162,11 @@ class ChatStore(context: Context) {
     }
 
     private fun atomicWrite(file: File, contents: String) {
-        check(file.parentFile?.mkdirs() != false) { "ساخت پوشهٔ داده ناموفق بود." }
-        val temporary = File(file.parentFile, file.name + ".tmp")
+        val parent = file.parentFile
+        check(parent != null && (parent.isDirectory || parent.mkdirs())) {
+            "ساخت پوشهٔ داده ناموفق بود: ${parent?.absolutePath ?: "مسیر والد نامشخص"}"
+        }
+        val temporary = File(parent, file.name + ".tmp")
         temporary.writeText(contents, Charsets.UTF_8)
         if (!temporary.renameTo(file)) {
             file.writeText(contents, Charsets.UTF_8)
