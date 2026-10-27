@@ -37,7 +37,7 @@ For future changes, push to `main` (changes under `app/` or build configuration 
 ## First run
 
 1. Open the app and tap the folder icon to select a project folder. The app copies project files to its private working copy.
-2. Open settings and enter an HTTPS endpoint ending in `/chat/completions`, a model that supports tool calling, and your API key.
+2. Open settings and enter an HTTPS provider base URL (for example `https://openrouter.ai/api/v1`) or a full endpoint ending in `/chat/completions`, a model that supports tool calling, and your API key. The app adds `/chat/completions` when needed.
 3. Ask the agent to inspect or modify a specific codebase. It can read and edit the private working copy.
 4. Inspect **Changes** and preview individual files. Tap **Apply changes** only after reviewing the changes you want to keep.
 5. Commands always require approval. Root commands can access the device with superuser permissions; only approve commands you understand.
