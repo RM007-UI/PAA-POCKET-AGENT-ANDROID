@@ -817,6 +817,91 @@ private fun MessageBubble(message: UiMessage) {
     }
 }
 
+private fun runtimePermissions(name: String): List<String> = when (name.lowercase()) {
+    "camera" -> listOf(Manifest.permission.CAMERA)
+    "microphone" -> listOf(Manifest.permission.RECORD_AUDIO)
+    "location" -> listOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)
+    "photos" -> if (Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.READ_MEDIA_IMAGES) else listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    "notifications" -> if (Build.VERSION.SDK_INT >= 33) listOf(Manifest.permission.POST_NOTIFICATIONS) else emptyList()
+    else -> emptyList()
+}
+
+private fun openSpecialAccessSettings(context: Context, setting: String): String {
+    val intent = try {
+        when (setting.lowercase()) {
+            "accessibility" -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            "all_files" -> if (Build.VERSION.SDK_INT >= 30) {
+                Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
+            } else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+            "usage_access" -> Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+            "overlay" -> Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+            "notification_listener" -> Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            "app_details" -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+            else -> return "نوع دسترسی ویژه شناخته‌شده نیست: $setting"
+        }
+    } catch (e: Exception) {
+        return "ساختن صفحهٔ تنظیمات ناموفق بود: ${e.message ?: e.javaClass.simpleName}"
+    }
+    return try {
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        "صفحهٔ تنظیم دسترسی «$setting» باز شد. تغییر را خودت در Android تأیید کن و بعد به Pocket Agent برگرد."
+    } catch (e: Exception) {
+        "باز کردن صفحهٔ دسترسی ناموفق بود: ${e.message ?: e.javaClass.simpleName}"
+    }
+}
+
+@Composable
+private fun TerminalToolsDialog(homePath: String, binPath: String, installedTools: String, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("ابزارهای ترمینال") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("پوشهٔ کاری و حافظهٔ ایجنت:", fontWeight = FontWeight.SemiBold)
+                Text(homePath, fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+                Text("پوشهٔ اجرایی ابزارها:", fontWeight = FontWeight.SemiBold)
+                Text(binPath, fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+                Divider(color = Color(0xFF303030))
+                Text("ابزارهای نصب‌شده", fontWeight = FontWeight.SemiBold)
+                Text(installedTools, fontSize = 12.sp)
+                Text(
+                    "ایجنت می‌تواند اسکریپت بسازد یا باینری HTTPS دانلود کند؛ پیش از ذخیره/نصب، پیش‌نمایش، نشانی و SHA-256 برای تأیید نمایش داده می‌شود. باینری باید با معماری و نسخهٔ Android سازگار باشد.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("بستن") } }
+    )
+}
+
+@Composable
+private fun GlobalMemoryDialog(initialValue: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var value by remember(initialValue) { mutableStateOf(initialValue) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("حافظهٔ کلی ایجنت") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("این یادداشت در همهٔ گفتگوها مشترک است. تاریخچهٔ مکالمه و زمینهٔ مدل هر چت همچنان جدا می‌ماند. رمز، کلید API و اطلاعات حساس را اینجا ننویس.", fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp, max = 430.dp),
+                    placeholder = { Text("ترجیحات پایدار و نکته‌های مفید ایجنت…") },
+                    maxLines = 16
+                )
+                Text("${value.length}/24000", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+            }
+        },
+        confirmButton = { Button(onClick = { onSave(value) }, enabled = value.length <= 24000) { Text("ذخیره") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("لغو") } }
+    )
+}
+
 @Composable
 private fun ProviderSettingsDialog(
     initialEndpoint: String,
