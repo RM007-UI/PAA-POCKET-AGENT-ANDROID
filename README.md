@@ -29,7 +29,7 @@ Pocket Agent is a Persian-first Android app for coding tasks on the phone. It is
 - Android does not include all developer tools by default. `git`, Gradle, Python, Node, or project-specific toolchains may be missing; a corresponding GitHub Actions workflow is the intended remote build path.
 - The APK is debug-signed. Do not treat it as a production release.
 - Accessibility-based screen control works only after the user manually enables **Pocket Agent — کنترل گوشی** in Android Settings → Accessibility. Android, system UI, banking/security apps, or apps that draw their interface outside the accessibility tree may restrict some actions. Root commands also require a working `su`/KernelSU grant and explicit approval.
-- Android Clock intents open the Clock app with a proposed alarm or timer; the user may still need to confirm or start it in Clock.
+- Alarm and timer requests use Android's standard Clock intents and ask the default Clock app to set the action directly. Since Clock apps vary by device, verify the alarm/timer the first time you test this build.
 - GitHub Actions build was verified for earlier revisions. The current phone-control revision needs a fresh CI build; no physical-device functional test has yet been completed.
 
 ## Build using GitHub Actions
