@@ -25,9 +25,41 @@ class AgentEngine(context: Context) {
     fun resetConversation() = history.clear()
 
     fun saveSettings(endpoint: String, model: String, apiKey: String) {
-        prefs.saveProvider(endpoint, model)
+        val normalizedEndpoint = normalizeChatCompletionsEndpoint(endpoint)
+        require(model.isNotBlank()) { "نام مدل در تنظیمات خالی است." }
+        prefs.saveProvider(normalizedEndpoint, model)
         prefs.saveApiKey(apiKey)
         resetConversation()
+    }
+
+    /**
+     * Accept both a provider base URL (for example https://openrouter.ai/api/v1)
+     * and a full Chat Completions URL. Older saved base URLs are normalized at use time too.
+     */
+    private fun normalizeChatCompletionsEndpoint(value: String): String {
+        val input = value.trim()
+        require(input.startsWith("https://", ignoreCase = true)) {
+            "برای محافظت از کلید API، آدرس سرویس باید با https:// شروع شود."
+        }
+
+        val suffixIndex = input.indexOfAny(charArrayOf('?', '#'))
+        val base = (if (suffixIndex >= 0) input.substring(0, suffixIndex) else input).trimEnd('/')
+        val suffix = if (suffixIndex >= 0) input.substring(suffixIndex) else ""
+        val parsed = try {
+            URL(base)
+        } catch (_: Exception) {
+            throw IllegalArgumentException("آدرس API معتبر نیست.")
+        }
+        require(parsed.protocol.equals("https", ignoreCase = true) && parsed.host.isNotBlank()) {
+            "آدرس API معتبر نیست؛ دامنه را بررسی کن."
+        }
+
+        val endpoint = if (base.endsWith("/chat/completions", ignoreCase = true)) {
+            base
+        } else {
+            "$base/chat/completions"
+        }
+        return endpoint + suffix
     }
 
     suspend fun runTask(
@@ -35,7 +67,11 @@ class AgentEngine(context: Context) {
         confirmCommand: suspend (AgentCommandAction) -> String,
         onEvent: suspend (role: String, text: String) -> Unit
     ): String {
-        val settings = ProviderSettings(prefs.endpoint(), prefs.model(), prefs.apiKey())
+        val settings = ProviderSettings(
+            normalizeChatCompletionsEndpoint(prefs.endpoint()),
+            prefs.model(),
+            prefs.apiKey()
+        )
         require(settings.apiKey.isNotBlank()) { "اول کلید API را در تنظیمات وارد کن." }
         require(settings.model.isNotBlank()) { "نام مدل در تنظیمات خالی است." }
         require(settings.endpoint.startsWith("https://", ignoreCase = true)) {
