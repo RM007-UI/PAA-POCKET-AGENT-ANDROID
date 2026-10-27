@@ -26,23 +26,13 @@ Pocket Agent is a Persian-first Android app for coding tasks on the phone. It is
 - The app only stores the GitHub token encrypted at rest. Anyone who can use the unlocked app and its configured token may be able to push to the configured repository, so prefer a fine-grained token scoped to one repository and revoke it if the device is lost.
 - Android does not include all developer tools by default. `git`, Gradle, Python, Node, or project-specific toolchains may be missing; a corresponding GitHub Actions workflow is the intended remote build path.
 - The APK is debug-signed. Do not treat it as a production release.
-- A successful GitHub Actions build and on-device testing have not been confirmed from this workspace yet.
+- GitHub Actions build was verified successfully on 2026-10-27 (run #2; artifact `pocket-agent-debug-apk`). Installation and functional testing on a real Android device have not yet been performed.
 
-## Build using GitHub Actions from a phone
+## Build using GitHub Actions
 
-### Option A — upload the extracted project tree
+The project is already configured in [RM007-UI/PAA-POCKET-AGENT-ANDROID](https://github.com/RM007-UI/PAA-POCKET-AGENT-ANDROID). The verified workflow is **Build Pocket Agent APK**. A successful run creates the `pocket-agent-debug-apk` artifact; download the ZIP from the run’s **Artifacts** section and extract `app-debug.apk`.
 
-1. Create a new repository under your own GitHub account.
-2. Upload the **contents** of this project (the `app/`, `.github/`, and Gradle files) to the repository root.
-3. Open **Actions → Build Pocket Agent APK → Run workflow** or push a change to `main`.
-4. After a successful run, download the `pocket-agent-debug-apk` artifact. Unzip it and install `app-debug.apk` on your phone.
-
-### Option B — upload one ZIP
-
-1. Create a new empty GitHub repository.
-2. Upload `pocket-agent-android.zip` to the repository root.
-3. Create `.github/workflows/build-from-archive.yml` and paste the supplied `build-from-archive.yml` workflow into it.
-4. Open **Actions → Build Pocket Agent from ZIP → Run workflow**. Download the `pocket-agent-debug-apk` artifact from a successful run.
+For future changes, push to `main` (changes under `app/` or build configuration automatically trigger a build) or use **Actions → Build Pocket Agent APK → Run workflow**.
 
 ## First run
 
