@@ -85,15 +85,19 @@ internal object TermuxBridge {
 
     fun openInteractiveTerminal(context: Context, workingDirectory: File?) {
         checkInstalled(context)
-        val mirror = workingDirectory?.let {
-            val shared = sharedWorkspaceDirectory(it)
-            syncDirectory(it, shared)
-            shared
+        val mirror = try {
+            workingDirectory?.let {
+                val shared = sharedWorkspaceDirectory(it)
+                syncDirectory(it, shared)
+                shared
+            }
+        } catch (e: Exception) {
+            return setupInstructions(e.message ?: e.javaClass.simpleName, workingDirectory != null)
         }
         val cwd = mirror ?: File(TERMUX_HOME)
         val shellCommand = "cd ${shellQuote(cwd.absolutePath)} && exec bash -i"
         val intent = commandIntent(shellCommand, cwd.absolutePath, background = false).apply {
-            putExtra(EXTRA_SESSION_ACTION, "0")
+            putExtra(EXTRA_SESSION_ACTION, 0)
             putExtra(EXTRA_LABEL, "Pocket Agent terminal")
             putExtra(EXTRA_DESCRIPTION, "Open an interactive Termux shell from Pocket Agent.")
             putExtra(EXTRA_HELP, RUN_COMMAND_HELP)
