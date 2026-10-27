@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_label">Pocket Agent — کنترل گوشی</string>
+    <string name="accessibility_service_description">به درخواست صریح شما، متن صفحهٔ فعال را می‌خواند و با لمس، پیمایش یا ورود متن در برنامه‌های دیگر تعامل می‌کند. متن صفحه ممکن است برای تحلیل به مدل هوش مصنوعی انتخاب‌شده فرستاده شود. این سرویس فقط پس از فعال‌سازی دستی شما کار می‌کند.</string>
+</resources>
