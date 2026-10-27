@@ -1,7 +1,10 @@
 package com.rm007.pocketagent
 
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -77,6 +80,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private fun isPocketAccessibilityEnabled(context: Context): Boolean {
+    val enabled = Settings.Secure.getString(
+        context.contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+    ).orEmpty()
+    val expected = ComponentName(context, PhoneAccessibilityService::class.java).flattenToString()
+    return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
+}
+
 private data class UiMessage(val role: String, val text: String)
 private data class PendingCommand(val action: AgentCommandAction, val decision: CompletableDeferred<Boolean>)
 
@@ -123,6 +135,8 @@ private fun PocketAgentApp() {
     var changeList by remember { mutableStateOf(emptyList<WorkspaceManager.Change>()) }
     var githubChangeList by remember { mutableStateOf(emptyList<WorkspaceManager.Change>()) }
     var rootStatus by remember { mutableStateOf("روت بررسی نشده") }
+    var accessibilityEnabled by remember { mutableStateOf(isPocketAccessibilityEnabled(context)) }
+    var showAccessSetup by remember { mutableStateOf(!isPocketAccessibilityEnabled(context)) }
     var projectVersion by remember { mutableStateOf(0) }
     val listState = rememberLazyListState()
 
@@ -374,6 +388,50 @@ private fun PocketAgentApp() {
                     }
                 }
             }
+        }
+
+        if (showAccessSetup) {
+            AlertDialog(
+                onDismissRequest = { /* Required device access is intentionally not silently skipped. */ },
+                title = { Text("راه‌اندازی دسترسی گوشی") },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            if (accessibilityEnabled) "سرویس کنترل صفحه فعال است."
+                            else "برای اینکه ایجنت بتواند در برنامه‌های دیگر صفحه را بخواند، لمس کند، پیمایش کند و متن وارد کند، باید سرویس دسترس‌پذیری را خودت در تنظیمات اندروید فعال کنی."
+                        )
+                        Text("۱. روی «باز کردن تنظیمات» بزن.\n۲. Pocket Agent — کنترل گوشی را پیدا کن.\n۳. سرویس را روشن و پیام هشدار اندروید را تأیید کن.\n۴. به برنامه برگرد و «بررسی دوباره» را بزن.")
+                        Text(
+                            "اندروید اجازه نمی‌دهد برنامه این مجوز ویژه را خودش بی‌صدا فعال کند. دسترسی روت هم فقط در دستگاه روت‌شده و با تأیید درخواست su/KernelSU ممکن است. رمزها و محدودیت‌های برنامه‌های بانکی یا صفحات امن قابل دور زدن تضمین‌شده نیستند.",
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        try {
+                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        } catch (e: Exception) {
+                            messages = messages + UiMessage("system", "باز کردن تنظیمات دسترس‌پذیری ناموفق بود: ${e.message ?: e.javaClass.simpleName}")
+                        }
+                    }) { Text("باز کردن تنظیمات") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        accessibilityEnabled = isPocketAccessibilityEnabled(context)
+                        if (accessibilityEnabled) {
+                            showAccessSetup = false
+                            messages = messages + UiMessage("system", "دسترسی دسترس‌پذیری تأیید شد. بعضی بخش‌های اندروید همچنان محدودیت سیستمی دارند.")
+                        } else {
+                            messages = messages + UiMessage("system", "دسترسی هنوز فعال نیست. در تنظیمات اندروید، سرویس Pocket Agent — کنترل گوشی را روشن کن و دوباره بررسی کن.")
+                        }
+                    }) { Text("بررسی دوباره") }
+                }
+            )
         }
 
         if (showSettings) {
