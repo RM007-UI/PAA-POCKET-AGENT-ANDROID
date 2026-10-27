@@ -180,7 +180,7 @@ internal object TermuxBridge {
             if (!started) pendingIntent.cancel()
             if (started && mirror != null && workingDirectory != null) {
                 try {
-                    syncDirectory(mirror, workingDirectory)
+                    syncDirectory(mirror, workingDirectory, preserveSensitiveDestination = true)
                 } catch (e: Exception) {
                     syncError = "Project files could not be fully copied back from Termux: ${e.message ?: e.javaClass.simpleName}. Shared copy remains at ${mirror.absolutePath}."
                 }
@@ -191,7 +191,7 @@ internal object TermuxBridge {
     }
 
     fun syncBack(sync: InteractiveWorkspaceSync) {
-        syncDirectory(sync.sharedDirectory, sync.privateDirectory)
+        syncDirectory(sync.sharedDirectory, sync.privateDirectory, preserveSensitiveDestination = true)
     }
 
     suspend fun importTool(context: Context, localFile: File): String {
@@ -291,7 +291,7 @@ internal object TermuxBridge {
         }
     }
 
-    private fun syncDirectory(source: File, destination: File) {
+    private fun syncDirectory(source: File, destination: File, preserveSensitiveDestination: Boolean = false) {
         require(source.isDirectory) { "Sync source is not a directory: ${source.absolutePath}" }
         check(destination.mkdirs() || destination.isDirectory) {
             "Could not create sync destination: ${destination.absolutePath}"
@@ -309,6 +309,7 @@ internal object TermuxBridge {
             .forEach { entry ->
                 if (Files.isSymbolicLink(entry.toPath())) return@forEach
                 val relative = if (entry == source) "" else entry.relativeTo(source).invariantSeparatorsPath
+                if (relative.isNotBlank() && isSensitivePath(relative)) return@forEach
                 if (relative.split('/').any { it in generatedDirectories }) return@forEach
                 sourcePaths += relative
                 val target = if (relative.isBlank()) destination else File(destination, relative)
@@ -336,12 +337,30 @@ internal object TermuxBridge {
         destination.walkBottomUp().forEach { existing ->
             if (existing == destination) return@forEach
             val relative = existing.relativeTo(destination).invariantSeparatorsPath
+            if (preserveSensitiveDestination && isSensitivePath(relative)) return@forEach
             if (relative.split('/').any { it in generatedDirectories }) return@forEach
             if (relative !in sourcePaths) {
                 check(existing.deleteRecursively()) {
                     "Could not remove stale synced item: ${existing.absolutePath}"
                 }
             }
+        }
+    }
+
+    private fun isSensitivePath(path: String): Boolean {
+        val safeExamples = setOf(".env.example", ".env.sample", ".env.template", ".env.dist")
+        val sensitiveNames = setOf(
+            ".env", ".npmrc", ".pypirc", ".netrc", ".git-credentials",
+            "credentials", "credentials.json", "service-account.json", "secrets.json",
+            "secret.json", "token", "token.json", "tokens.json", "id_rsa",
+            "id_ed25519", "known_hosts.private"
+        )
+        return path.replace('\\', '/').split('/').filter { it.isNotBlank() }.map { it.lowercase() }.any { name ->
+            name in sensitiveNames ||
+                name.endsWith(".pem") || name.endsWith(".key") || name.endsWith(".p12") ||
+                name.endsWith(".pfx") || name.endsWith(".keystore") || name.endsWith(".jks") ||
+                name.endsWith(".secret") || name.endsWith(".token") ||
+                (name.startsWith(".env.") && name !in safeExamples)
         }
     }
 
