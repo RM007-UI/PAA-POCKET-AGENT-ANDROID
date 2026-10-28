@@ -27,204 +27,49 @@ jobs:
           path: termux-packages
           fetch-depth: 1
 
-      - name: Configure the bootstrap for PAA's app ID
+      - name: Configure the bootstrap for PAA
         working-directory: termux-packages
         shell: bash
         run: |
           set -euo pipefail
-          grep -q '^TERMUX_APP__PACKAGE_NAME="com.termux"$' scripts/properties.sh
           sed -i 's/^TERMUX_APP__PACKAGE_NAME="com.termux"$/TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"/' scripts/properties.sh
-          grep -q '^TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"$' scripts/properties.sh
-          # Pin the regenerated Codeberg archive for the still-pinned foot 1.23.1 recipe.
+          grep -Fxq 'TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"' scripts/properties.sh
+
+          # Keep the pinned foot recipe usable when Codeberg regenerates its archive.
           if [ -f x11-packages/foot/build.sh ]; then
-            grep -q '^TERMUX_PKG_VERSION="1.23.1"
-
-      - name: Ensure matching Android SDK and NDK exist in builder
-        working-directory: termux-packages
-        run: |
-          set -euo pipefail
-          ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
-          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang && echo "NDK ready"'
-
-      - name: Clear packages built for the upstream prefix
-        working-directory: termux-packages
-        run: ./scripts/run-docker.sh ./clean.sh
-
-      - name: Build aarch64 bootstrap and developer tools
-        working-directory: termux-packages
-        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --packages-post-additional git,python,nodejs,nano,curl,wget,tree
-
-      - name: Verify bootstrap and create checksum
-        working-directory: termux-packages
-        run: |
-          set -euo pipefail
-          test -s bootstrap-aarch64.zip
-          unzip -l bootstrap-aarch64.zip | grep -q 'SYMLINKS.txt'
-          sha256sum bootstrap-aarch64.zip > bootstrap-aarch64.zip.sha256
-          cat bootstrap-aarch64.zip.sha256
-
-      - name: Upload bootstrap build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: paa-embedded-termux-bootstrap-aarch64
-          path: |
-            termux-packages/bootstrap-aarch64.zip
-            termux-packages/bootstrap-aarch64.zip.sha256
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish bootstrap asset for the APK build
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: paa-embedded-termux-bootstrap-v1
-          name: PAA embedded Termux runtime (aarch64)
-          body: |
-            Custom-prefix Termux bootstrap built for application ID com.rm007.pocketagent.
-            Includes the bootstrap base plus Git, Python, Node.js, nano, curl, wget and tree.
-            Do not use official com.termux packages inside this runtime; their compiled prefix differs.
-          target_commitish: main
-          prerelease: true
-          make_latest: false
-          overwrite_files: true
-          files: |
-            termux-packages/bootstrap-aarch64.zip
-            termux-packages/bootstrap-aarch64.zip.sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
- x11-packages/foot/build.sh
-            if grep -q '^TERMUX_PKG_SHA256=02072b8f0aaf26907b6b02293c875539ce52fc59079344e7cf811ab03394cfa3
-
-      - name: Ensure matching Android SDK and NDK exist in builder
-        working-directory: termux-packages
-        run: |
-          set -euo pipefail
-          ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
-          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang && echo "NDK ready"'
-
-      - name: Clear packages built for the upstream prefix
-        working-directory: termux-packages
-        run: ./scripts/run-docker.sh ./clean.sh
-
-      - name: Build aarch64 bootstrap and developer tools
-        working-directory: termux-packages
-        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --packages-post-additional git,python,nodejs,nano,curl,wget,tree
-
-      - name: Verify bootstrap and create checksum
-        working-directory: termux-packages
-        run: |
-          set -euo pipefail
-          test -s bootstrap-aarch64.zip
-          unzip -l bootstrap-aarch64.zip | grep -q 'SYMLINKS.txt'
-          sha256sum bootstrap-aarch64.zip > bootstrap-aarch64.zip.sha256
-          cat bootstrap-aarch64.zip.sha256
-
-      - name: Upload bootstrap build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: paa-embedded-termux-bootstrap-aarch64
-          path: |
-            termux-packages/bootstrap-aarch64.zip
-            termux-packages/bootstrap-aarch64.zip.sha256
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish bootstrap asset for the APK build
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: paa-embedded-termux-bootstrap-v1
-          name: PAA embedded Termux runtime (aarch64)
-          body: |
-            Custom-prefix Termux bootstrap built for application ID com.rm007.pocketagent.
-            Includes the bootstrap base plus Git, Python, Node.js, nano, curl, wget and tree.
-            Do not use official com.termux packages inside this runtime; their compiled prefix differs.
-          target_commitish: main
-          prerelease: true
-          make_latest: false
-          overwrite_files: true
-          files: |
-            termux-packages/bootstrap-aarch64.zip
-            termux-packages/bootstrap-aarch64.zip.sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
- x11-packages/foot/build.sh; then
-              sed -i 's/^TERMUX_PKG_SHA256=02072b8f0aaf26907b6b02293c875539ce52fc59079344e7cf811ab03394cfa3$/TERMUX_PKG_SHA256=b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9/' x11-packages/foot/build.sh
-            else
-              grep -q '^TERMUX_PKG_SHA256=b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9
-
-      - name: Ensure matching Android SDK and NDK exist in builder
-        working-directory: termux-packages
-        run: |
-          set -euo pipefail
-          ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
-          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang && echo "NDK ready"'
-
-      - name: Clear packages built for the upstream prefix
-        working-directory: termux-packages
-        run: ./scripts/run-docker.sh ./clean.sh
-
-      - name: Build aarch64 bootstrap and developer tools
-        working-directory: termux-packages
-        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --packages-post-additional git,python,nodejs,nano,curl,wget,tree
-
-      - name: Verify bootstrap and create checksum
-        working-directory: termux-packages
-        run: |
-          set -euo pipefail
-          test -s bootstrap-aarch64.zip
-          unzip -l bootstrap-aarch64.zip | grep -q 'SYMLINKS.txt'
-          sha256sum bootstrap-aarch64.zip > bootstrap-aarch64.zip.sha256
-          cat bootstrap-aarch64.zip.sha256
-
-      - name: Upload bootstrap build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: paa-embedded-termux-bootstrap-aarch64
-          path: |
-            termux-packages/bootstrap-aarch64.zip
-            termux-packages/bootstrap-aarch64.zip.sha256
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish bootstrap asset for the APK build
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: paa-embedded-termux-bootstrap-v1
-          name: PAA embedded Termux runtime (aarch64)
-          body: |
-            Custom-prefix Termux bootstrap built for application ID com.rm007.pocketagent.
-            Includes the bootstrap base plus Git, Python, Node.js, nano, curl, wget and tree.
-            Do not use official com.termux packages inside this runtime; their compiled prefix differs.
-          target_commitish: main
-          prerelease: true
-          make_latest: false
-          overwrite_files: true
-          files: |
-            termux-packages/bootstrap-aarch64.zip
-            termux-packages/bootstrap-aarch64.zip.sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
- x11-packages/foot/build.sh
-            fi
+            grep -Fxq 'TERMUX_PKG_VERSION="1.23.1"' x11-packages/foot/build.sh
+            sed -i 's/02072b8f0aaf26907b6b02293c875539ce52fc59079344e7cf811ab03394cfa3/b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9/' x11-packages/foot/build.sh
+            grep -Fxq 'TERMUX_PKG_SHA256=b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9' x11-packages/foot/build.sh
           fi
-          # xcb-proto's generator runs on the Linux builder, not on the Android target.
+
+          # xcb-proto runs a generator on the Linux build host, not on Android.
           if [ -f packages/xcb-proto/build.sh ]; then
-            grep -q 'PYTHON=python\$\{TERMUX_PYTHON_VERSION\}' packages/xcb-proto/build.sh
-            sed -i 's|PYTHON=python\$\{TERMUX_PYTHON_VERSION\}|PYTHON=/usr/bin/python3|' packages/xcb-proto/build.sh
-            grep -q 'PYTHON=/usr/bin/python3' packages/xcb-proto/build.sh
+            python3 - <<'PY'
+          from pathlib import Path
+          path = Path("packages/xcb-proto/build.sh")
+          source = path.read_text()
+          source = source.replace(
+              "PYTHON=python${TERMUX_PYTHON_VERSION}",
+              "PYTHON=/usr/bin/python3",
+          )
+          if "PYTHON=/usr/bin/python3" not in source:
+              raise SystemExit("Could not configure host Python for xcb-proto")
+          path.write_text(source)
+          PY
           fi
 
-      - name: Ensure matching Android SDK and NDK exist in builder
+      - name: Ensure Android SDK and NDK are available in builder
         working-directory: termux-packages
         run: |
           set -euo pipefail
           ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
-          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang && echo "NDK ready"'
+          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang'
 
-      - name: Clear packages built for the upstream prefix
+      - name: Clear previous package outputs
         working-directory: termux-packages
         run: ./scripts/run-docker.sh ./clean.sh
 
-      - name: Build aarch64 bootstrap and developer tools
+      - name: Build ARM64 Termux bootstrap and developer tools
         working-directory: termux-packages
         run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --packages-post-additional git,python,nodejs,nano,curl,wget,tree
 
@@ -247,15 +92,15 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish bootstrap asset for the APK build
+      - name: Publish bootstrap assets for APK workflow
         uses: softprops/action-gh-release@v2
         with:
           tag_name: paa-embedded-termux-bootstrap-v1
           name: PAA embedded Termux runtime (aarch64)
           body: |
             Custom-prefix Termux bootstrap built for application ID com.rm007.pocketagent.
-            Includes the bootstrap base plus Git, Python, Node.js, nano, curl, wget and tree.
-            Do not use official com.termux packages inside this runtime; their compiled prefix differs.
+            Includes the Termux base plus Git, Python, Node.js, nano, curl, wget and tree.
+            Binaries are compiled for this app's private prefix, not for the separate com.termux app.
           target_commitish: main
           prerelease: true
           make_latest: false
