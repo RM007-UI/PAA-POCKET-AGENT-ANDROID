@@ -36,6 +36,9 @@ jobs:
           set -euo pipefail
           sed -i 's/^TERMUX_APP__PACKAGE_NAME="com.termux"$/TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"/' scripts/properties.sh
           grep -Fxq 'TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"' scripts/properties.sh
+          # The upstream host setup has one hard-coded link to Termux's /system libraries.
+          sed -i 's|/data/data/com.termux/files/usr/opt/aosp|/data/data/com.rm007.pocketagent/files/usr/opt/aosp|' scripts/setup-ubuntu.sh
+          grep -Fq '/data/data/com.rm007.pocketagent/files/usr/opt/aosp' scripts/setup-ubuntu.sh
 
           # Use the builder's matching Python 3.12 for CPython and xcb-proto.
           test -x /usr/bin/python3.12
