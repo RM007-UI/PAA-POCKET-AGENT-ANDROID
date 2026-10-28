@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      TERMUX_BUILDER_IMAGE_NAME: paa-termux-package-builder:ci
+      TERMUX_BUILDER_IMAGE_NAME: ghcr.io/termux/package-builder:latest
     steps:
       - name: Check out upstream Termux package build system
         uses: actions/checkout@v4
@@ -59,9 +59,8 @@ jobs:
           path.write_text(source)
           PY
 
-      - name: Build matching Termux package-builder image
-        working-directory: termux-packages/scripts
-        run: docker build --tag "$TERMUX_BUILDER_IMAGE_NAME" .
+      - name: Pull upstream Termux package-builder image
+        run: docker pull "$TERMUX_BUILDER_IMAGE_NAME"
 
       - name: Verify Android NDK and host Python
         working-directory: termux-packages
