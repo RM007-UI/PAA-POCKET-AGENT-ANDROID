@@ -196,6 +196,10 @@ internal object EmbeddedTermuxRuntime {
                             symlinks.add(linkTarget to linkName)
                         }
                     } else {
+                        if (entry.name == "./" || entry.name.isEmpty()) {
+                            zip.closeEntry()
+                            continue
+                        }
                         val name = safeRelativePath(entry.name)
                         if (name.isEmpty()) continue
                         val out = File(stage, name)
@@ -205,7 +209,10 @@ internal object EmbeddedTermuxRuntime {
                         if (entry.isDirectory) {
                             check(out.mkdirs() || out.isDirectory) { "ساخت پوشهٔ bootstrap ناموفق بود: $name" }
                         } else {
-                            check(out.parentFile?.mkdirs() != false) { "ساخت پوشهٔ فایل bootstrap ناموفق بود: $name" }
+                            val parent = out.parentFile
+                            check(parent != null && (parent.mkdirs() || parent.isDirectory)) {
+                                "ساخت پوشهٔ فایل bootstrap ناموفق بود: $name"
+                            }
                             FileOutputStream(out).use { output -> zip.copyTo(output) }
                             if (name.startsWith("bin/") || name.startsWith("libexec") ||
                                 name.startsWith("lib/apt/apt-helper") || name.startsWith("lib/apt/methods")) {
