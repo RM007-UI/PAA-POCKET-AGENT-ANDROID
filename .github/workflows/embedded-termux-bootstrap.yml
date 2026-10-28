@@ -21,93 +21,63 @@ jobs:
     env:
       TERMUX_BUILDER_IMAGE_NAME: paa-termux-package-builder:ci
     steps:
-      - name: Check out Termux package build system
+      - name: Check out upstream Termux package build system
         uses: actions/checkout@v4
         with:
-          repository: agnostic-apollo/termux-packages
-          ref: infra-improvs
+          repository: termux/termux-packages
+          ref: f99592d21e8c0d03d4cd8ad152b9c651894019c0
           path: termux-packages
           fetch-depth: 1
 
-      - name: Configure PAA's private prefix and host Python
+      - name: Set PAA prefix and disable optional libunbound Python binding
         working-directory: termux-packages
         shell: bash
         run: |
           set -euo pipefail
           sed -i 's/^TERMUX_APP__PACKAGE_NAME="com.termux"$/TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"/' scripts/properties.sh
           grep -Fxq 'TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"' scripts/properties.sh
-          # The upstream host setup has one hard-coded link to Termux's /system libraries.
-          sed -i 's|/data/data/com.termux/files/usr/opt/aosp|/data/data/com.rm007.pocketagent/files/usr/opt/aosp|' scripts/setup-ubuntu.sh
-          grep -Fq '/data/data/com.rm007.pocketagent/files/usr/opt/aosp' scripts/setup-ubuntu.sh
-
-          # Codeberg regenerated the pinned foot 1.23.1 archive; update its SHA after verifying version and known checksum.
-          if [ -f x11-packages/foot/build.sh ]; then
-            grep -Fxq 'TERMUX_PKG_VERSION="1.23.1"' x11-packages/foot/build.sh
-            if grep -Fxq 'TERMUX_PKG_SHA256=02072b8f0aaf26907b6b02293c875539ce52fc59079344e7cf811ab03394cfa3' x11-packages/foot/build.sh; then
-              sed -i 's/02072b8f0aaf26907b6b02293c875539ce52fc59079344e7cf811ab03394cfa3/b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9/' x11-packages/foot/build.sh
-            fi
-            grep -Fxq 'TERMUX_PKG_SHA256=b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9' x11-packages/foot/build.sh
-          fi
-
-          # Use the builder's matching Python 3.12 for CPython and xcb-proto.
-          test -x /usr/bin/python3.12
-          /usr/bin/python3.12 --version
-          if [ -f packages/python/build.sh ]; then
-            python3 - <<'PY'
+          python3 - <<'PY'
           from pathlib import Path
-          path = Path("packages/python/build.sh")
+
+          path = Path("packages/libunbound/build.sh")
           source = path.read_text()
-          source = source.replace(
-              "--with-build-python=python$_MAJOR_VERSION",
-              "--with-build-python=/usr/bin/python3.12",
-          )
-          if "--with-build-python=/usr/bin/python3.12" not in source:
-              raise SystemExit("Could not configure host Python for CPython")
+          required = [
+              'TERMUX_PKG_BUILD_DEPENDS="python, swig"',
+              'TERMUX_PKG_PYTHON_COMMON_BUILD_DEPS="wheel"',
+              'TERMUX_PKG_PYTHON_CROSS_BUILD_DEPS="swig"',
+              '--with-pyunbound',
+          ]
+          missing = [item for item in required if item not in source]
+          if missing:
+              raise SystemExit(f"Unexpected libunbound recipe; missing: {missing}")
+          source = source.replace('TERMUX_PKG_BUILD_DEPENDS="python, swig"', 'TERMUX_PKG_BUILD_DEPENDS=""')
+          source = source.replace('TERMUX_PKG_PYTHON_COMMON_BUILD_DEPS="wheel"', 'TERMUX_PKG_PYTHON_COMMON_BUILD_DEPS=""')
+          source = source.replace('TERMUX_PKG_PYTHON_CROSS_BUILD_DEPS="swig"', 'TERMUX_PKG_PYTHON_CROSS_BUILD_DEPS=""')
+          source = source.replace('--with-pyunbound', '--without-pyunbound')
+          if '--with-pyunbound' in source or 'swig"' in source:
+              raise SystemExit("Optional libunbound wrapper dependencies were not fully disabled")
           path.write_text(source)
           PY
-          fi
-          if [ -f packages/xcb-proto/build.sh ]; then
-            python3 - <<'PY'
-          from pathlib import Path
-          path = Path("packages/xcb-proto/build.sh")
-          source = path.read_text()
-          source = source.replace(
-              "PYTHON=python${TERMUX_PYTHON_VERSION}",
-              "PYTHON=/usr/bin/python3.12",
-          )
-          if "PYTHON=/usr/bin/python3.12" not in source:
-              raise SystemExit("Could not configure host Python for xcb-proto")
-          path.write_text(source)
-          PY
-          fi
 
-          # The bootstrap needs the DNS resolver library, not its optional SWIG/Python wrapper.
-          if [ -f packages/libunbound/build.sh ]; then
-            grep -Fq -- "--with-pyunbound" packages/libunbound/build.sh
-            sed -i 's/--with-pyunbound/--without-pyunbound/' packages/libunbound/build.sh
-            grep -Fq -- "--without-pyunbound" packages/libunbound/build.sh
-          fi
-
-      - name: Build a matching package-builder image
+      - name: Build matching Termux package-builder image
         working-directory: termux-packages/scripts
         run: docker build --tag "$TERMUX_BUILDER_IMAGE_NAME" .
 
-      - name: Ensure Android SDK and NDK are available
+      - name: Verify Android NDK and host Python
         working-directory: termux-packages
         run: |
           set -euo pipefail
-          ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
-          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang && test -x /usr/bin/python3.12'
+          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r30/toolchains/llvm/prebuilt/linux-x86_64/bin/clang && /usr/bin/python3.14 --version'
 
       - name: Clear previous package outputs
         working-directory: termux-packages
         run: ./scripts/run-docker.sh ./clean.sh
 
-      - name: Build ARM64 Termux bootstrap and selected developer tools
+      - name: Build ARM64 Termux bootstrap with developer tools
         working-directory: termux-packages
-        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --no-build-unneeded-subpackages --packages-post-additional git,python,wget,tree
+        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --add git,python,curl,wget,tree
 
-      - name: Verify bootstrap and create checksum
+      - name: Verify bootstrap and calculate checksum
         working-directory: termux-packages
         run: |
           set -euo pipefail
@@ -116,7 +86,7 @@ jobs:
           sha256sum bootstrap-aarch64.zip > bootstrap-aarch64.zip.sha256
           cat bootstrap-aarch64.zip.sha256
 
-      - name: Upload bootstrap build artifact
+      - name: Upload verified bootstrap artifact
         uses: actions/upload-artifact@v4
         with:
           name: paa-embedded-termux-bootstrap-aarch64
