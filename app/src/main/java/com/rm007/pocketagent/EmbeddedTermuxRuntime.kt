@@ -28,7 +28,7 @@ internal object EmbeddedTermuxRuntime {
 
     fun prefix(context: Context): File = File(context.filesDir, "usr")
     fun homeDirectory(context: Context): File = File(context.filesDir, "home")
-    fun tempDirectory(context: Context): File = File(prefix(context).parentFile, "tmp")
+    fun tempDirectory(context: Context): File = File(prefix(context), "tmp")
     fun bashFile(context: Context): File = File(prefix(context), "bin/bash")
 
     fun isInstalled(context: Context): Boolean {
