@@ -59,6 +59,21 @@ jobs:
           path.write_text(source)
           PY
 
+          # This upstream bootstrap still lists bzip2 although this pinned source revision
+          # no longer has a bzip2 package recipe. It is not required for the embedded shell.
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/build-bootstraps.sh")
+          source = path.read_text()
+          line = next((line for line in source.splitlines() if 'PACKAGES+=("bzip2")' in line), None)
+          if line is None:
+              raise SystemExit("Expected obsolete bzip2 bootstrap entry was not found")
+          source = source.replace(line + "\\n", "", 1)
+          if 'PACKAGES+=("bzip2")' in source:
+              raise SystemExit("bzip2 bootstrap entry is still present")
+          path.write_text(source)
+          PY
+
       - name: Pull upstream Termux package-builder image
         run: docker pull "$TERMUX_BUILDER_IMAGE_NAME"
 
@@ -74,7 +89,7 @@ jobs:
 
       - name: Build ARM64 Termux bootstrap with developer tools
         working-directory: termux-packages
-        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --add git,python,curl,wget,tree
+        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --add git,python,wget,tree
 
       - name: Verify bootstrap and calculate checksum
         working-directory: termux-packages
