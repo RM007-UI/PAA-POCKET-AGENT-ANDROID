@@ -8,6 +8,7 @@ on:
       - "build.gradle.kts"
       - "settings.gradle.kts"
       - "gradle.properties"
+      - ".github/workflows/android.yml"
   workflow_dispatch:
   workflow_run:
     workflows: ["Build embedded Termux runtime for PAA"]
@@ -81,6 +82,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.13"
+
+      - name: Compile source while embedded runtime is being built
+        if: steps.bootstrap.outputs.available != 'true'
+        run: gradle --no-daemon compileDebugKotlin --stacktrace
 
       - name: Assemble debug APK
         if: steps.bootstrap.outputs.available == 'true'
