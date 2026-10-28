@@ -40,6 +40,15 @@ jobs:
           sed -i 's|/data/data/com.termux/files/usr/opt/aosp|/data/data/com.rm007.pocketagent/files/usr/opt/aosp|' scripts/setup-ubuntu.sh
           grep -Fq '/data/data/com.rm007.pocketagent/files/usr/opt/aosp' scripts/setup-ubuntu.sh
 
+          # Codeberg regenerated the pinned foot 1.23.1 archive; update its SHA after verifying version and known checksum.
+          if [ -f x11-packages/foot/build.sh ]; then
+            grep -Fxq 'TERMUX_PKG_VERSION="1.23.1"' x11-packages/foot/build.sh
+            if grep -Fxq 'TERMUX_PKG_SHA256=02072b8f0aaf26907b6b02293c875539ce52fc59079344e7cf811ab03394cfa3' x11-packages/foot/build.sh; then
+              sed -i 's/02072b8f0aaf26907b6b02293c875539ce52fc59079344e7cf811ab03394cfa3/b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9/' x11-packages/foot/build.sh
+            fi
+            grep -Fxq 'TERMUX_PKG_SHA256=b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9' x11-packages/foot/build.sh
+          fi
+
           # Use the builder's matching Python 3.12 for CPython and xcb-proto.
           test -x /usr/bin/python3.12
           /usr/bin/python3.12 --version
