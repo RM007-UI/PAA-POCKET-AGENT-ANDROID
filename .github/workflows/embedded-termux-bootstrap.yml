@@ -68,7 +68,7 @@ jobs:
           line = next((line for line in source.splitlines() if 'PACKAGES+=("bzip2")' in line), None)
           if line is None:
               raise SystemExit("Expected obsolete bzip2 bootstrap entry was not found")
-          source = source.replace(line + "\\n", "", 1)
+          source = source.replace(line + "\n", "", 1)
           if 'PACKAGES+=("bzip2")' in source:
               raise SystemExit("bzip2 bootstrap entry is still present")
           path.write_text(source)
