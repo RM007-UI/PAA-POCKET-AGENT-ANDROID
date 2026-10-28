@@ -81,6 +81,13 @@ jobs:
           PY
           fi
 
+          # The bootstrap needs the DNS resolver library, not its optional SWIG/Python wrapper.
+          if [ -f packages/libunbound/build.sh ]; then
+            grep -Fq -- "--with-pyunbound" packages/libunbound/build.sh
+            sed -i 's/--with-pyunbound/--without-pyunbound/' packages/libunbound/build.sh
+            grep -Fq -- "--without-pyunbound" packages/libunbound/build.sh
+          fi
+
       - name: Build a matching package-builder image
         working-directory: termux-packages/scripts
         run: docker build --tag "$TERMUX_BUILDER_IMAGE_NAME" .
