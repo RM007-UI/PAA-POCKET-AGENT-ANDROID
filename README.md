@@ -31,7 +31,7 @@ Pocket Agent is a Persian-first Android app for coding tasks on the phone. It is
 - The source folder copy excludes generated/dependency folders such as `.git`, `node_modules`, `build`, `.gradle`, `dist`, and `target`, and limits workspace import to 10,000 files / 150 MB. It does not import a Git history.
 - GitHub sync creates a single commit on the configured existing branch, limited to 40 changed files and 15 MB per push (with a 5 MB per-file limit). It does not create repositories or branches and does not open pull requests. A fine-grained PAT with **Contents: Read and write** permission for the target repository is required. Review the remote diff before sending; API errors or branch conflicts stop the operation. It uploads only changed files; the selected project snapshot should match the starting state of the target branch. It is not a tool for initializing an empty repository or uploading every unchanged file.
 - The app only stores the GitHub token encrypted at rest. Anyone who can use the unlocked app and its configured token may be able to push to the configured repository, so prefer a fine-grained token scoped to one repository and revoke it if the device is lost.
-- Android does not include all developer tools by default. Termux provides packages such as Git, Python and Node.js through its package manager; Gradle or project-specific toolchains may still need separate setup.
+- Android does not include all developer tools by default. Pocket Agent embeds a private Termux userspace with Git, Python and Node.js; Gradle or project-specific toolchains may still need separate setup.
 - The APK is debug-signed. Do not treat it as a production release.
 - All-files access is an optional special permission requested only for tasks that truly need broad filesystem access. Android opens its settings page and the user must enable it manually; ordinary project work continues to use the folder picker.
 - Runtime permissions are not granted automatically at install or startup. The agent can request a declared permission when a task needs it; special access pages must be enabled manually by the user. Android does not expose arbitrary private data from other apps merely because this app has Accessibility enabled, and secure apps/system screens may block automation.
@@ -62,28 +62,27 @@ For future changes, push to `main` (changes under `app/` or build configuration 
 - `AgentEngine.kt`: model API, agent loop, native Android intent tools and tool routing.
 - `PhoneAccessibilityService.kt`: opt-in on-device screen reading and UI interaction.
 - `WorkspaceManager.kt`: SAF import, private worktree, separate local/remote baseline snapshots, bounded source operations, diff preview, apply/discard.
-- `TermuxBridge.kt`: official Termux command dispatch, result callbacks and staged-workspace mirroring. `ShellRunner.kt` retains the local/root fallback.
+- `EmbeddedTermuxRuntime.kt` and `TerminalDialog.kt`: verified bootstrap installation into PAA's private files directory, embedded Bash execution, environment setup and the interactive terminal emulator. `ShellRunner.kt` retains the explicit root-command path.
 - `SecurePrefs.kt`: provider settings plus encrypted API-key / GitHub-token storage.
 - `GitHubSync.kt`: reviewed, bounded file changes committed through GitHub's Git Database API.
-- `MainActivity.kt`: chat, project picker, tool approval, Termux launch/setup, workspace change review, GitHub push and settings UI.
+- `MainActivity.kt`: chat, project picker, tool approval, embedded terminal initialization, workspace change review, GitHub push and settings UI.
 
 ## Local build
 
-With JDK 17, Android SDK platform 36, Build Tools 36.0.0, and Gradle 8.13 installed:
+With JDK 17, Android SDK platform 36, Build Tools 36.0.0, and Gradle 8.13 installed, first place the two verified bootstrap assets from the `paa-embedded-termux-bootstrap-v1` GitHub release in `app/src/main/assets/` (`bootstrap-aarch64.zip` and `bootstrap-aarch64.zip.sha256`), then run:
 
 ```bash
 gradle assembleDebug
 ```
 
-The APK is produced at `app/build/outputs/apk/debug/app-debug.apk`.
+The APK is produced at `app/build/outputs/apk/debug/app-debug.apk`. The GitHub Actions workflow downloads and verifies these assets automatically.
 
 
-## Termux integration (v0.9.0)
+## Embedded Termux runtime (v0.10.0)
 
-- The terminal button opens the actual Termux app with an interactive Bash session. Pocket Agent no longer ships a second terminal emulator.
-- When Termux is installed, approved non-root shell commands are sent through Termux's documented RUN_COMMAND service and the output and exit code return to the agent. Root commands remain on the existing explicit su/KernelSU path.
-- If a project is selected, Pocket Agent mirrors its private staged work copy into /storage/emulated/0/PocketAgentTermux/workspaces before launching Termux. On return, changes are copied into the staged workspace so the Changes review can show them; the original selected folder is still modified only with Apply changes. The sync skips generated folders such as .git, node_modules, build, .gradle, dist, target, and virtual environments, and also excludes credential files such as .env, .npmrc, private keys, and token files. Existing sensitive files in the private staged workspace are preserved during sync-back. Symlinks are not followed.
-- One-time setup is required for external commands: install and open Termux; grant Pocket Agent the Android “Run commands in Termux environment” permission from App info; in Termux set allow-external-apps = true in ~/.termux/termux.properties and restart Termux. For project sharing, enable All files access for Pocket Agent and run termux-setup-storage inside Termux.
-- Scripts/binaries installed using the Pocket Agent tool installer are also imported into Termux when shared-storage permissions are available. Otherwise, the local copy remains in Pocket Agent and the app reports the import failure.
-- Termux supplies its own packages, for example pkg install git python nodejs. Package names and availability depend on the Termux repository and device architecture.
+- Pocket Agent contains its own ARM64 Termux userspace, Bash shell, terminal emulator UI and common developer tools. Installing the separate `com.termux` app is not required.
+- On first terminal use or the first approved non-root shell command, PAA verifies the bundled bootstrap with SHA-256 and installs it into its private app storage. Later sessions reuse that environment.
+- The embedded base includes Termux core utilities plus Git, Python, Node.js, nano, curl, wget and tree. Other packages can be installed with the embedded `apt`/`pkg` tools when the package repository is available.
+- Approved non-root commands run as the PAA app UID inside this environment; root commands continue through the explicit su/KernelSU path. Review every command before approving it.
+- The current bundled environment targets ARM64 Android devices. The first run needs extra time and private storage to unpack the bootstrap; subsequent terminal launches do not unpack it again.
 
