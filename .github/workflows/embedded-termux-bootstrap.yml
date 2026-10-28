@@ -87,23 +87,29 @@ jobs:
         working-directory: termux-packages
         run: ./scripts/run-docker.sh ./clean.sh
 
-      - name: Prepare writable bootstrap output path
+      - name: Prepare bootstrap output outside the bind mount
         working-directory: termux-packages
         run: |
           set -euo pipefail
-          # The bootstrap builder creates the archive in a container temp directory,
-          # then moves it into the bind-mounted checkout. Ensure both the directory
-          # and any stale archive are writable/removable by the container's builder UID.
-          chmod -R a+rwX .
           rm -f bootstrap-aarch64.zip bootstrap-aarch64.zip.sha256
-          test -w .
-          stat -c '%A %u:%g %n' .
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/build-bootstraps.sh")
+          source = path.read_text()
+          old = 'mv -f "${BOOTSTRAP_TMPDIR}/bootstrap-${1}.zip" "$TERMUX_PACKAGES_DIRECTORY/"'
+          new = 'mkdir -p /tmp/paa-bootstrap-output\n\tcp -f "${BOOTSTRAP_TMPDIR}/bootstrap-${1}.zip" /tmp/paa-bootstrap-output/'
+          if source.count(old) != 1:
+              raise SystemExit("Expected single bootstrap output move was not found")
+          path.write_text(source.replace(old, new, 1))
+          PY
+          CONTAINER_NAME=termux-package-builder ./scripts/run-docker.sh mkdir -p /tmp/paa-bootstrap-output
 
       - name: Build ARM64 Termux bootstrap with developer tools
         working-directory: termux-packages
         run: |
           set -euo pipefail
-          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --add git,python,wget,tree
+          CONTAINER_NAME=termux-package-builder ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --add git,python,wget,tree
+          docker cp termux-package-builder:/tmp/paa-bootstrap-output/bootstrap-aarch64.zip bootstrap-aarch64.zip
           test -s bootstrap-aarch64.zip
 
       - name: Verify bootstrap and calculate checksum
