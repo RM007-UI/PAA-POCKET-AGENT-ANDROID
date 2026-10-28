@@ -9,6 +9,7 @@ on:
       - "settings.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/android.yml"
+      - ".github/workflows/android.yml"
   workflow_dispatch:
   workflow_run:
     workflows: ["Build embedded Termux runtime for PAA"]
@@ -87,8 +88,7 @@ jobs:
         if: steps.bootstrap.outputs.available != 'true'
         run: gradle --no-daemon compileDebugKotlin --stacktrace
 
-      - name: Assemble debug APK
-        if: steps.bootstrap.outputs.available == 'true'
+      - name: Assemble debug APK (compile validation when runtime artifact is unavailable)
         run: gradle --no-daemon assembleDebug --stacktrace
 
       - name: Upload APK artifact
