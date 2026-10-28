@@ -179,7 +179,7 @@ internal fun PocketTerminalDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        "Android sh · PTY · ابزارهای برنامه در PATH",
+                        "Bash داخلی · PTY · ابزارهای برنامه در PATH",
                         modifier = Modifier.weight(1f),
                         color = Color(0xFF9BA99E),
                         fontSize = 10.sp,
