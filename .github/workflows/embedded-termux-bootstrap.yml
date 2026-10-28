@@ -8,11 +8,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: paa-embedded-termux-bootstrap
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   bootstrap:
@@ -27,7 +27,7 @@ jobs:
           path: termux-packages
           fetch-depth: 1
 
-      - name: Configure the bootstrap for PAA
+      - name: Configure PAA's private prefix and host Python
         working-directory: termux-packages
         shell: bash
         run: |
@@ -35,29 +35,9 @@ jobs:
           sed -i 's/^TERMUX_APP__PACKAGE_NAME="com.termux"$/TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"/' scripts/properties.sh
           grep -Fxq 'TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"' scripts/properties.sh
 
-          # Keep the pinned foot recipe usable when Codeberg regenerates its archive.
-          if [ -f x11-packages/foot/build.sh ]; then
-            grep -Fxq 'TERMUX_PKG_VERSION="1.23.1"' x11-packages/foot/build.sh
-            sed -i 's/02072b8f0aaf26907b6b02293c875539ce52fc59079344e7cf811ab03394cfa3/b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9/' x11-packages/foot/build.sh
-            grep -Fxq 'TERMUX_PKG_SHA256=b3fa774983abb5f95aecca4557d146091d8666bc65fb310d4d3e38327357ade9' x11-packages/foot/build.sh
-          fi
-
-          # xcb-proto runs a generator on the Linux build host, not on Android.
-          if [ -f packages/xcb-proto/build.sh ]; then
-            python3 - <<'PY'
-          from pathlib import Path
-          path = Path("packages/xcb-proto/build.sh")
-          source = path.read_text()
-          source = source.replace(
-              "PYTHON=python${TERMUX_PYTHON_VERSION}",
-              "PYTHON=/usr/bin/python3.12",
-          )
-          if "PYTHON=/usr/bin/python3.12" not in source:
-              raise SystemExit("Could not configure host Python for xcb-proto")
-          path.write_text(source)
-          PY
-          fi
-          # CPython is cross-compiled for Android, but configure also needs a native build Python.
+          # Use the builder's matching Python 3.12 for CPython and xcb-proto.
+          test -x /usr/bin/python3.12
+          /usr/bin/python3.12 --version
           if [ -f packages/python/build.sh ]; then
             python3 - <<'PY'
           from pathlib import Path
@@ -72,21 +52,35 @@ jobs:
           path.write_text(source)
           PY
           fi
+          if [ -f packages/xcb-proto/build.sh ]; then
+            python3 - <<'PY'
+          from pathlib import Path
+          path = Path("packages/xcb-proto/build.sh")
+          source = path.read_text()
+          source = source.replace(
+              "PYTHON=python${TERMUX_PYTHON_VERSION}",
+              "PYTHON=/usr/bin/python3.12",
+          )
+          if "PYTHON=/usr/bin/python3.12" not in source:
+              raise SystemExit("Could not configure host Python for xcb-proto")
+          path.write_text(source)
+          PY
+          fi
 
-      - name: Ensure Android SDK and NDK are available in builder
+      - name: Ensure Android SDK and NDK are available
         working-directory: termux-packages
         run: |
           set -euo pipefail
           ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
-          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang && test -x /usr/bin/python3.12 && /usr/bin/python3.12 --version'
+          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang && test -x /usr/bin/python3.12'
 
       - name: Clear previous package outputs
         working-directory: termux-packages
         run: ./scripts/run-docker.sh ./clean.sh
 
-      - name: Build ARM64 Termux bootstrap and developer tools
+      - name: Build ARM64 Termux bootstrap and selected developer tools
         working-directory: termux-packages
-        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --packages-post-additional git,python,nodejs,nano,curl,wget,tree
+        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --no-build-unneeded-subpackages --packages-post-additional git,python,wget,tree
 
       - name: Verify bootstrap and create checksum
         working-directory: termux-packages
@@ -106,22 +100,3 @@ jobs:
             termux-packages/bootstrap-aarch64.zip.sha256
           if-no-files-found: error
           retention-days: 30
-
-      - name: Publish bootstrap assets for APK workflow
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: paa-embedded-termux-bootstrap-v1
-          name: PAA embedded Termux runtime (aarch64)
-          body: |
-            Custom-prefix Termux bootstrap built for application ID com.rm007.pocketagent.
-            Includes the Termux base plus Git, Python, Node.js, nano, curl, wget and tree.
-            Binaries are compiled for this app's private prefix, not for the separate com.termux app.
-          target_commitish: main
-          prerelease: true
-          make_latest: false
-          overwrite_files: true
-          files: |
-            termux-packages/bootstrap-aarch64.zip
-            termux-packages/bootstrap-aarch64.zip.sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
