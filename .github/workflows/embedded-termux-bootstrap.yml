@@ -57,6 +57,21 @@ jobs:
           path.write_text(source)
           PY
           fi
+          # CPython is cross-compiled for Android, but configure also needs a native build Python.
+          if [ -f packages/python/build.sh ]; then
+            python3 - <<'PY'
+          from pathlib import Path
+          path = Path("packages/python/build.sh")
+          source = path.read_text()
+          source = source.replace(
+              "--with-build-python=python$_MAJOR_VERSION",
+              "--with-build-python=/usr/bin/python3",
+          )
+          if "--with-build-python=/usr/bin/python3" not in source:
+              raise SystemExit("Could not configure host Python for CPython")
+          path.write_text(source)
+          PY
+          fi
 
       - name: Ensure Android SDK and NDK are available in builder
         working-directory: termux-packages
