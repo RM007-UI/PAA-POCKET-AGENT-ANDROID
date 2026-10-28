@@ -41,7 +41,7 @@ jobs:
       - name: Install Android 36 SDK
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
-      - name: Download and verify embedded Termux bootstrap
+      - name: Download and verify the embedded Termux bootstrap
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
@@ -49,18 +49,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/paa-bootstrap" app/src/main/assets
-          if [ "$EVENT_NAME" = "workflow_run" ]; then
-            gh run download "$BOOTSTRAP_RUN_ID" \
-              --repo "$GITHUB_REPOSITORY" \
-              --name "paa-embedded-termux-bootstrap-aarch64" \
-              --dir "$RUNNER_TEMP/paa-bootstrap"
-          else
-            gh release download paa-embedded-termux-bootstrap-v1 \
-              --repo "$GITHUB_REPOSITORY" \
-              --pattern "bootstrap-aarch64.zip" \
-              --pattern "bootstrap-aarch64.zip.sha256" \
-              --dir "$RUNNER_TEMP/paa-bootstrap"
+          RUN_ID="$BOOTSTRAP_RUN_ID"
+          if [ "$EVENT_NAME" != "workflow_run" ]; then
+            RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/embedded-termux-bootstrap.yml/runs" -f status=success -f per_page=1 --jq '.workflow_runs[0].id')"
           fi
+          test -n "$RUN_ID" && test "$RUN_ID" != "null"
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "paa-embedded-termux-bootstrap-aarch64" \
+            --dir "$RUNNER_TEMP/paa-bootstrap"
           (cd "$RUNNER_TEMP/paa-bootstrap" && sha256sum -c bootstrap-aarch64.zip.sha256)
           install -m 0644 "$RUNNER_TEMP/paa-bootstrap/bootstrap-aarch64.zip" app/src/main/assets/bootstrap-aarch64.zip
           install -m 0644 "$RUNNER_TEMP/paa-bootstrap/bootstrap-aarch64.zip.sha256" app/src/main/assets/bootstrap-aarch64.zip.sha256
