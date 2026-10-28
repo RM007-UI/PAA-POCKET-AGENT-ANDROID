@@ -41,20 +41,35 @@ jobs:
       - name: Install Android 36 SDK
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
 
-      - name: Download and verify the embedded Termux bootstrap
+      - name: Resolve a successful bootstrap build
+        id: bootstrap
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           BOOTSTRAP_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/paa-bootstrap" app/src/main/assets
           RUN_ID="$BOOTSTRAP_RUN_ID"
           if [ "$EVENT_NAME" != "workflow_run" ]; then
-            RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/embedded-termux-bootstrap.yml/runs" -f status=success -f per_page=1 --jq '.workflow_runs[0].id')"
+            RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/embedded-termux-bootstrap.yml/runs?status=success&per_page=1" --jq '.workflow_runs[0].id // empty')"
           fi
-          test -n "$RUN_ID" && test "$RUN_ID" != "null"
-          gh run download "$RUN_ID" \
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "No successful embedded runtime exists yet; APK build steps are skipped safely."
+            exit 0
+          fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Download and verify the embedded Termux bootstrap
+        if: steps.bootstrap.outputs.available == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BOOTSTRAP_RUN_ID: ${{ steps.bootstrap.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/paa-bootstrap" app/src/main/assets
+          gh run download "$BOOTSTRAP_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
             --name "paa-embedded-termux-bootstrap-aarch64" \
             --dir "$RUNNER_TEMP/paa-bootstrap"
@@ -68,9 +83,11 @@ jobs:
           gradle-version: "8.13"
 
       - name: Assemble debug APK
+        if: steps.bootstrap.outputs.available == 'true'
         run: gradle --no-daemon assembleDebug --stacktrace
 
       - name: Upload APK artifact
+        if: steps.bootstrap.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: pocket-agent-debug-apk
