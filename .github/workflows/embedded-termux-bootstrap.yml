@@ -50,9 +50,9 @@ jobs:
           source = path.read_text()
           source = source.replace(
               "PYTHON=python${TERMUX_PYTHON_VERSION}",
-              "PYTHON=/usr/bin/python3",
+              "PYTHON=/usr/bin/python3.12",
           )
-          if "PYTHON=/usr/bin/python3" not in source:
+          if "PYTHON=/usr/bin/python3.12" not in source:
               raise SystemExit("Could not configure host Python for xcb-proto")
           path.write_text(source)
           PY
@@ -65,9 +65,9 @@ jobs:
           source = path.read_text()
           source = source.replace(
               "--with-build-python=python$_MAJOR_VERSION",
-              "--with-build-python=/usr/bin/python3",
+              "--with-build-python=/usr/bin/python3.12",
           )
-          if "--with-build-python=/usr/bin/python3" not in source:
+          if "--with-build-python=/usr/bin/python3.12" not in source:
               raise SystemExit("Could not configure host Python for CPython")
           path.write_text(source)
           PY
@@ -78,7 +78,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
-          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang'
+          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang && test -x /usr/bin/python3.12 && /usr/bin/python3.12 --version'
 
       - name: Clear previous package outputs
         working-directory: termux-packages
