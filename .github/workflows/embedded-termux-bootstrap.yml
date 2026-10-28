@@ -87,9 +87,17 @@ jobs:
         working-directory: termux-packages
         run: ./scripts/run-docker.sh ./clean.sh
 
+      - name: Allow the container to write bootstrap outputs
+        working-directory: termux-packages
+        run: chmod 0777 .
+
       - name: Build ARM64 Termux bootstrap with developer tools
         working-directory: termux-packages
-        run: ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --add git,python,wget,tree
+        run: |
+          set -euo pipefail
+          ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --add git,python,wget,tree
+          test -s bootstrap-aarch64.zip
+          test -s bootstrap-aarch64.zip.sha256 || true
 
       - name: Verify bootstrap and calculate checksum
         working-directory: termux-packages
