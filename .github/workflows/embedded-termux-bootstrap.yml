@@ -36,6 +36,13 @@ jobs:
           sed -i 's/^TERMUX_APP__PACKAGE_NAME="com.termux"$/TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"/' scripts/properties.sh
           grep -q '^TERMUX_APP__PACKAGE_NAME="com.rm007.pocketagent"$' scripts/properties.sh
 
+      - name: Ensure matching Android SDK and NDK exist in builder
+        working-directory: termux-packages
+        run: |
+          set -euo pipefail
+          ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
+          ./scripts/run-docker.sh bash -lc 'test -x "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" && echo "NDK ready: $NDK"'
+
       - name: Clear packages built for the upstream prefix
         working-directory: termux-packages
         run: ./scripts/run-docker.sh ./clean.sh
