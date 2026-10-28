@@ -9,7 +9,6 @@ on:
       - "settings.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/android.yml"
-      - ".github/workflows/android.yml"
   workflow_dispatch:
   workflow_run:
     workflows: ["Build embedded Termux runtime for PAA"]
