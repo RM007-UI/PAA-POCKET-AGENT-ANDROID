@@ -229,23 +229,11 @@ private class PocketTerminalController(
 
     fun newSession(): TerminalSession {
         if (!workingDirectory.exists()) workingDirectory.mkdirs()
-        if (!homeDirectory.exists()) homeDirectory.mkdirs()
-        val tempDirectory = File(context.cacheDir, "terminal-tmp")
-        if (!tempDirectory.exists()) tempDirectory.mkdirs()
-        val env = arrayOf(
-            "HOME=" + homeDirectory.absolutePath,
-            "TMPDIR=" + tempDirectory.absolutePath,
-            "PATH=" + toolDirectory.absolutePath + ":/system/bin:/system/xbin",
-            "TERM=xterm-256color",
-            "COLORTERM=truecolor",
-            "LANG=C.UTF-8",
-            "SHELL=/system/bin/sh",
-            "PS1=pocket-agent$ "
-        )
+        val env = EmbeddedTermuxRuntime.terminalEnvironment(context, toolDirectory)
         return TerminalSession(
-            "/system/bin/sh",
+            EmbeddedTermuxRuntime.bashFile(context).absolutePath,
             workingDirectory.absolutePath,
-            arrayOf("-i"),
+            arrayOf("--login", "-i"),
             env,
             6000,
             this
