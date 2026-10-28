@@ -8,7 +8,6 @@ on:
       - "build.gradle.kts"
       - "settings.gradle.kts"
       - "gradle.properties"
-      - ".github/workflows/android.yml"
   workflow_dispatch:
   workflow_run:
     workflows: ["Build embedded Termux runtime for PAA"]
@@ -56,7 +55,7 @@ jobs:
           fi
           if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "No successful embedded runtime exists yet; APK build steps are skipped safely."
+            echo "No successful embedded runtime exists yet; APK build continues as compile validation only."
             exit 0
           fi
           echo "available=true" >> "$GITHUB_OUTPUT"
@@ -87,7 +86,7 @@ jobs:
         if: steps.bootstrap.outputs.available != 'true'
         run: gradle --no-daemon compileDebugKotlin --stacktrace
 
-      - name: Assemble debug APK (compile validation when runtime artifact is unavailable)
+      - name: Assemble debug APK
         run: gradle --no-daemon assembleDebug --stacktrace
 
       - name: Verify embedded runtime is packaged
@@ -97,15 +96,7 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           unzip -Z1 "$APK" | grep -Fxq "assets/bootstrap-aarch64.zip"
           unzip -Z1 "$APK" | grep -Fxq "assets/bootstrap-aarch64.zip.sha256"
-          unzip -p "$APK" assets/bootstrap-aarch64.zip.sha256 | grep -Eq '^[a-fA-F0-9]{64}[[:space:]]+bootstrap-aarch64[.]zip
-        if: steps.bootstrap.outputs.available == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: pocket-agent-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
-          retention-days: 14
-
+          unzip -p "$APK" assets/bootstrap-aarch64.zip.sha256 | grep -Eq '^[a-fA-F0-9]{64}[[:space:]]+bootstrap-aarch64[.]zip$'
 
       - name: Upload APK artifact
         if: steps.bootstrap.outputs.available == 'true'
