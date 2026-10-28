@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/run-docker.sh ./scripts/setup-android-sdk.sh
-          ./scripts/run-docker.sh bash -lc 'test -x "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" && echo "NDK ready: $NDK"'
+          ./scripts/run-docker.sh bash -c 'test -x /home/builder/lib/android-ndk-r28c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang && echo "NDK ready: /home/builder/lib/android-ndk-r28c"'
 
       - name: Clear packages built for the upstream prefix
         working-directory: termux-packages
