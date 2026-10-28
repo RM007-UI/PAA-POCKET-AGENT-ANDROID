@@ -82,7 +82,7 @@ The APK is produced at `app/build/outputs/apk/debug/app-debug.apk`. The GitHub A
 
 - Pocket Agent contains its own ARM64 Termux userspace, Bash shell, terminal emulator UI and common developer tools. Installing the separate `com.termux` app is not required.
 - On first terminal use or the first approved non-root shell command, PAA verifies the bundled bootstrap with SHA-256 and installs it into its private app storage. Later sessions reuse that environment.
-- The embedded base includes Termux core utilities plus Git, Python, Node.js, nano, curl, wget and tree. Other packages can be installed with the embedded `apt`/`pkg` tools when the package repository is available.
+- The embedded base includes Termux core utilities plus Git, Python, Node.js, nano, curl, wget and tree, compiled for PAA's own prefix. Do not assume arbitrary packages from the official Termux repository are compatible with this custom prefix; extra packages need a repository built for PAA or an explicit source build.
 - Approved non-root commands run as the PAA app UID inside this environment; root commands continue through the explicit su/KernelSU path. Review every command before approving it.
 - The current bundled environment targets ARM64 Android devices. The first run needs extra time and private storage to unpack the bootstrap; subsequent terminal launches do not unpack it again.
 
