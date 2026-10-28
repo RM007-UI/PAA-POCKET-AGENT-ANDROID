@@ -8,7 +8,6 @@ on:
       - "build.gradle.kts"
       - "settings.gradle.kts"
       - "gradle.properties"
-      - ".github/workflows/android.yml"
   workflow_dispatch:
   workflow_run:
     workflows: ["Build embedded Termux runtime for PAA"]
@@ -25,6 +24,7 @@ jobs:
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
       - name: Check out source
         uses: actions/checkout@v4
 
