@@ -26,8 +26,13 @@ internal object EmbeddedTermuxRuntime {
     private const val MAX_BOOTSTRAP_BYTES = 300L * 1024 * 1024
     private const val MAX_OUTPUT_CHARS = 18_000
 
-    fun prefix(context: Context): File = File(context.filesDir, "usr")
-    fun homeDirectory(context: Context): File = File(context.filesDir, "home")
+    // Termux binaries are built with this exact /data/data prefix; using context.filesDir
+    // may return the /data/user/0 alias and leave runtime PREFIX inconsistent.
+    private fun appFilesDirectory(context: Context): File =
+        File("/data/data/${context.packageName}/files")
+
+    fun prefix(context: Context): File = File(appFilesDirectory(context), "usr")
+    fun homeDirectory(context: Context): File = File(appFilesDirectory(context), "home")
     fun tempDirectory(context: Context): File = File(prefix(context), "tmp")
     fun bashFile(context: Context): File = File(prefix(context), "bin/bash")
 
@@ -174,9 +179,11 @@ internal object EmbeddedTermuxRuntime {
     }
 
     private fun installArchive(context: Context, archive: File) {
-        val stage = File(context.filesDir, "usr-staging")
+        val prefixParent = prefix(context).parentFile
+            ?: error("مسیر خصوصی محیط داخلی نامعتبر است.")
+        val stage = File(prefixParent, "usr-staging")
         val target = prefix(context)
-        val backup = File(context.filesDir, "usr-backup")
+        val backup = File(prefixParent, "usr-backup")
         stage.deleteRecursively()
         check(stage.mkdirs() || stage.isDirectory) { "ساخت پوشهٔ موقت محیط داخلی ناموفق بود." }
 
