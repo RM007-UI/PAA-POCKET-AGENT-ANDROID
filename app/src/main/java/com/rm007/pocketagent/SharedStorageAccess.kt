@@ -75,30 +75,57 @@ class SharedStorageAccess(context: Context) {
         require(needle.isNotEmpty()) { "عبارت جست‌وجو خالی است." }
         val root = storageRoot()
         val matches = mutableListOf<String>()
-        var checked = 0
-        root.walkTopDown()
+        val candidates = root.walkTopDown()
             .onEnter { directory -> directory == root || isInside(root, directory) }
             .filter { it.isFile }
-            .forEach { file ->
-                if (matches.size >= maxMatches || checked >= MAX_SEARCH_FILES) return@forEach
-                val relative = runCatching { file.relativeTo(root).invariantSeparatorsPath }.getOrNull() ?: return@forEach
-                if (isSensitivePath(relative) || file.length() > MAX_SEARCH_FILE_BYTES) return@forEach
-                checked++
-                try {
-                    file.useLines(Charsets.UTF_8) { lines ->
-                        lines.forEachIndexed { index, line ->
-                            if (line.contains(needle, ignoreCase = true) && matches.size < maxMatches) {
-                                matches += "$relative:${index + 1}: ${line.trim().take(220)}"
-                            }
+            .take(MAX_SEARCH_FILES + 1)
+            .toList()
+        for (file in candidates.take(MAX_SEARCH_FILES)) {
+            if (matches.size >= maxMatches) break
+            val relative = runCatching { file.relativeTo(root).invariantSeparatorsPath }.getOrNull() ?: continue
+            if (isSensitivePath(relative) || file.length() > MAX_SEARCH_FILE_BYTES) continue
+            try {
+                file.useLines(Charsets.UTF_8) { lines ->
+                    lines.forEachIndexed { index, line ->
+                        if (line.contains(needle, ignoreCase = true) && matches.size < maxMatches) {
+                            matches += "$relative:${index + 1}: ${line.trim().take(220)}"
                         }
                     }
-                } catch (_: Exception) {
-                    // Binary, unreadable or OS-protected paths are skipped.
                 }
+            } catch (_: Exception) {
+                // Binary, unreadable or OS-protected paths are skipped.
             }
-        val suffix = if (checked >= MAX_SEARCH_FILES) "\n… جست‌وجو به $MAX_SEARCH_FILES فایل محدود شد." else ""
+        }
+        val suffix = if (candidates.size > MAX_SEARCH_FILES) "\n… جست‌وجو به $MAX_SEARCH_FILES فایل محدود شد." else ""
         val result = matches.joinToString("\n").ifBlank { "چیزی برای «$needle» پیدا نشد." }
         return "جست‌وجو در حافظهٔ اشتراکی (${root.path})\n$result$suffix"
+    }
+
+    /** Validate and preview the direct write before the approval dialog is shown. */
+    fun writePreview(path: String, content: String): String {
+        requireAccess()
+        val normalized = normalizePath(path)
+        require(normalized.isNotBlank()) { "مسیر فایل خالی است." }
+        require(!isSensitivePath(normalized)) { "نوشتن در مسیر احتمالا محرمانه از طریق ابزار ایجنت مسدود است." }
+        val bytes = content.toByteArray(Charsets.UTF_8)
+        require(bytes.size <= MAX_WRITE_BYTES) {
+            "محتوای فایل از حد ${MAX_WRITE_BYTES / 1024 / 1024} مگابایت بیشتر است."
+        }
+        rejectSystemProtectedPath(normalized)
+        val target = resolve(storageRoot(), normalized)
+        require(!target.exists() || target.isFile) { "مسیر مقصد پوشه است، نه فایل: $normalized" }
+        val operation = if (target.exists()) "جایگزینی فایل موجود" else "ایجاد فایل جدید"
+        val preview = content.take(2200) + if (content.length > 2200) "\n… پیش‌نمایش کوتاه شد." else ""
+        return "عملیات: $operation\nمسیر دقیق: ${target.path}\nحجم: ${bytes.size} بایت\n\nپیش‌نمایش محتوا:\n$preview"
+    }
+
+    private fun rejectSystemProtectedPath(normalized: String) {
+        if (normalized.equals("Android/data", true) ||
+            normalized.startsWith("Android/data/", true) ||
+            normalized.equals("Android/obb", true) ||
+            normalized.startsWith("Android/obb/", true)) {
+            error("اندروید دسترسی مستقیم به Android/data و Android/obb را مسدود می‌کند؛ این محدودیت با All files access هم برداشته نمی‌شود.")
+        }
     }
 
     /** Called only after MainActivity shows the exact destination and asks the user to approve. */
@@ -113,12 +140,7 @@ class SharedStorageAccess(context: Context) {
         require(bytes.size <= MAX_WRITE_BYTES) {
             "محتوای فایل از حد ${MAX_WRITE_BYTES / 1024 / 1024} مگابایت بیشتر است."
         }
-        if (normalized.equals("Android/data", true) ||
-            normalized.startsWith("Android/data/", true) ||
-            normalized.equals("Android/obb", true) ||
-            normalized.startsWith("Android/obb/", true)) {
-            error("اندروید دسترسی مستقیم به Android/data و Android/obb را مسدود می‌کند؛ این محدودیت با All files access هم برداشته نمی‌شود.")
-        }
+        rejectSystemProtectedPath(normalized)
 
         val root = storageRoot()
         var target = resolve(root, normalized)
