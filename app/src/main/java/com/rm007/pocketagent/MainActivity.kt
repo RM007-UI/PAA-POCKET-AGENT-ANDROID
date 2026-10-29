@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -150,6 +151,8 @@ private fun PocketAgentApp() {
     var changeList by remember { mutableStateOf(emptyList<WorkspaceManager.Change>()) }
     var githubChangeList by remember { mutableStateOf(emptyList<WorkspaceManager.Change>()) }
     var rootStatus by remember { mutableStateOf("روت بررسی نشده") }
+    var allFilesAccessEnabled by remember { mutableStateOf(hasSharedStorageAccess(context)) }
+    var showStorageAccessInfo by remember { mutableStateOf(false) }
     var accessibilityEnabled by remember { mutableStateOf(isPocketAccessibilityEnabled(context)) }
     var showAccessSetup by remember { mutableStateOf(!isPocketAccessibilityEnabled(context)) }
     var projectVersion by remember { mutableStateOf(0) }
@@ -158,6 +161,14 @@ private fun PocketAgentApp() {
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         permissionGate?.complete(result)
         permissionGate = null
+    }
+    val storageAccessLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        allFilesAccessEnabled = hasSharedStorageAccess(context)
+        messages = messages + UiMessage(
+            "system",
+            if (allFilesAccessEnabled) "دسترسی مدیریت همهٔ فایل‌ها فعال شد. ایجنت اکنون می‌تواند فایل‌های حافظهٔ اشتراکی را فهرست و بخواند؛ نوشتن مستقیم همچنان برای هر فایل تأیید جداگانه می‌خواهد."
+            else "دسترسی کامل حافظه فعال نشد. برای استفاده از ابزارهای حافظه، «مدیریت همهٔ فایل‌ها» را در تنظیمات روشن کن."
+        )
     }
 
     LaunchedEffect(currentChatId, messages) {
@@ -193,6 +204,29 @@ private fun PocketAgentApp() {
                     messages = messages + UiMessage("system", "انتخاب پروژه ناموفق بود: ${e.message ?: e.javaClass.simpleName}")
                 } finally { busy = false }
             }
+        }
+    }
+
+    val openAllFilesSettings: () -> Unit = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                storageAccessLauncher.launch(
+                    Intent(
+                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        Uri.parse("package:${context.packageName}")
+                    )
+                )
+            } catch (_: Exception) {
+                try {
+                    storageAccessLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                } catch (e: Exception) {
+                    messages = messages + UiMessage("system", "باز کردن تنظیمات دسترسی حافظه ناموفق بود: ${e.message ?: e.javaClass.simpleName}")
+                }
+            }
+        } else {
+            storageAccessLauncher.launch(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+            )
         }
     }
 
@@ -315,6 +349,7 @@ private fun PocketAgentApp() {
                                 when (action.name) {
                                     "install_terminal_script" -> terminalTools.installScriptPayload(action.payload ?: "{}")
                                     "download_terminal_binary" -> terminalTools.downloadBinaryPayload(action.payload ?: "{}")
+                                    "write_shared_storage_file" -> SharedStorageAccess(context).writeFilePayload(action.payload ?: "{}")
                                     else -> {
                                         val workDirectory = agent.workspace.workDirectory()
                                         if (action.requiresRoot) {
@@ -340,7 +375,10 @@ private fun PocketAgentApp() {
                         }
                     },
                     requestAndroidAccess = { type, name ->
-                        if (type == "runtime") {
+                        if (type == "special" && name.equals("all_files", ignoreCase = true)) {
+                            openAllFilesSettings()
+                            "صفحهٔ مجوز حافظه باز شد. «مدیریت همهٔ فایل‌ها» را روشن کن و سپس ابزار حافظه را دوباره اجرا کن."
+                        } else if (type == "runtime") {
                             val requested = runtimePermissions(name)
                             if (requested.isEmpty()) {
                                 if (name == "notifications" && Build.VERSION.SDK_INT < 33) "این نسخهٔ Android مجوز زمان اجرای اعلان‌ها نمی‌خواهد."
@@ -435,6 +473,9 @@ private fun PocketAgentApp() {
                                     color = MaterialTheme.colorScheme.secondary,
                                     fontSize = 10.sp
                                 )
+                                TextButton(onClick = { showStorageAccessInfo = true }, enabled = !busy) {
+                                    Text(if (allFilesAccessEnabled) "حافظه: فعال" else "دسترسی حافظه", fontSize = 10.sp)
+                                }
                                 TextButton(onClick = {
                                     currentChatId = chatStore.createChat()
                                     agent.selectChat(currentChatId)
@@ -591,6 +632,36 @@ private fun PocketAgentApp() {
             )
         }
 
+        if (showStorageAccessInfo) {
+            AlertDialog(
+                onDismissRequest = { showStorageAccessInfo = false },
+                title = { Text("دسترسی حافظهٔ اصلی گوشی") },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(if (allFilesAccessEnabled) {
+                            "دسترسی All files access فعال است. ریشهٔ حافظهٔ اشتراکی گوشی معمولاً /storage/emulated/0 است؛ ایجنت می‌تواند پوشه‌ها را فهرست کند و فایل‌های متنی معمولی را بخواند."
+                        } else {
+                            "برای اینکه PAA بتواند خارج از پوشهٔ پروژه هم فایل‌ها را ببیند و در حافظهٔ اشتراکی مثل Downloads و Documents فایل بسازد، باید دسترسی ویژهٔ «مدیریت همهٔ فایل‌ها» را در تنظیمات اندروید فعال کنی."
+                        })
+                        Text("نوشتن مستقیم روی حافظهٔ واقعی فقط بعد از تأیید جداگانهٔ مسیر و پیش‌نمایش محتوا انجام می‌شود. فایل‌های احتمالا محرمانه مثل .env و کلیدها برای جلوگیری از ارسال ناخواسته به مدل قابل خواندن نیستند.")
+                        Text("محدودیت مهم: خود اندروید همچنان پوشه‌های خصوصی برنامه‌ها، به‌خصوص Android/data و Android/obb را محدود می‌کند. وقتی ایجنت فایل را می‌خواند، محتوای آن برای تحلیل به سرویس هوش مصنوعی تنظیم‌شده فرستاده می‌شود.", color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        showStorageAccessInfo = false
+                        openAllFilesSettings()
+                    }) { Text(if (allFilesAccessEnabled) "باز کردن تنظیمات" else "فعال‌سازی دسترسی") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showStorageAccessInfo = false }) { Text("بستن") }
+                }
+            )
+        }
+
         if (showAccessSetup) {
             AlertDialog(
                 onDismissRequest = { /* Required device access is intentionally not silently skipped. */ },
@@ -660,17 +731,28 @@ private fun PocketAgentApp() {
 
         pendingCommand?.let { request ->
             val action = request.action
-            val highRisk = ShellRunner.isHighRisk(action.command)
+            val highRisk = action.name != "write_shared_storage_file" && ShellRunner.isHighRisk(action.command)
             AlertDialog(
                 onDismissRequest = { request.decision.complete(false) },
-                title = { Text(if (action.requiresRoot) "تأیید فرمان روت" else "تأیید فرمان ترمینال") },
+                title = {
+                    Text(
+                        when {
+                            action.requiresRoot -> "تأیید فرمان روت"
+                            action.name == "write_shared_storage_file" -> "تأیید نوشتن فایل در حافظه"
+                            else -> "تأیید فرمان ترمینال"
+                        }
+                    )
+                },
                 text = {
                     Column(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 470.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text("دلیل ایجنت: ${action.reason}")
-                        Text("فرمان دقیق:", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (action.name == "write_shared_storage_file") "مسیر و پیش‌نمایش دقیق نوشتن:" else "فرمان دقیق:",
+                            fontWeight = FontWeight.SemiBold
+                        )
                         Surface(color = Color(0xFF090909), shape = RoundedCornerShape(10.dp)) {
                             Text(action.command, modifier = Modifier.fillMaxWidth().padding(12.dp), fontSize = 12.sp, color = Color(0xFFA7F3D0))
                         }
@@ -681,7 +763,11 @@ private fun PocketAgentApp() {
                             Text("هشدار: الگوی فرمان شبیه عملیاتی پرخطر یا برگشت‌ناپذیر است. این تشخیص کامل نیست؛ قبل از تأیید خودت فرمان را بررسی کن.", color = Color(0xFFFCA5A5), fontWeight = FontWeight.Medium)
                         }
                         Text(
-                            "فرمان داخل پوشهٔ کاری آغاز می‌شود، اما sandbox سیستم‌عاملی کامل نیست و خود فرمان می‌تواند مسیرهای دیگری را هدف بگیرد. اگر تأیید کنی، خروجی آن به مدل ارسال می‌شود.",
+                            if (action.name == "write_shared_storage_file") {
+                                "با تأیید، فایل مستقیماً در حافظهٔ واقعی گوشی ایجاد یا جایگزین می‌شود؛ این تغییر از بخش «اعمال تغییرات پروژه» عبور نمی‌کند. مسیر و پیش‌نمایش را پیش از تأیید دقیق بررسی کن."
+                            } else {
+                                "فرمان داخل پوشهٔ کاری آغاز می‌شود، اما sandbox سیستم‌عاملی کامل نیست و خود فرمان می‌تواند مسیرهای دیگری را هدف بگیرد. اگر تأیید کنی، خروجی آن به مدل ارسال می‌شود."
+                            },
                             color = MaterialTheme.colorScheme.secondary,
                             fontSize = 11.sp
                         )
@@ -883,6 +969,9 @@ private fun MessageBubble(message: UiMessage) {
         }
     }
 }
+
+private fun hasSharedStorageAccess(context: Context): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
 
 private fun runtimePermissions(name: String): List<String> = when (name.lowercase()) {
     "camera" -> listOf(Manifest.permission.CAMERA)
