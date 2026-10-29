@@ -151,7 +151,7 @@ private fun PocketAgentApp() {
     var changeList by remember { mutableStateOf(emptyList<WorkspaceManager.Change>()) }
     var githubChangeList by remember { mutableStateOf(emptyList<WorkspaceManager.Change>()) }
     var rootStatus by remember { mutableStateOf("روت بررسی نشده") }
-    var allFilesAccessEnabled by remember { mutableStateOf(hasSharedStorageAccess(context)) }
+    var allFilesAccessEnabled by remember { mutableStateOf(hasSharedStorageAccess()) }
     var showStorageAccessInfo by remember { mutableStateOf(false) }
     var accessibilityEnabled by remember { mutableStateOf(isPocketAccessibilityEnabled(context)) }
     var showAccessSetup by remember { mutableStateOf(!isPocketAccessibilityEnabled(context)) }
@@ -163,7 +163,7 @@ private fun PocketAgentApp() {
         permissionGate = null
     }
     val storageAccessLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        allFilesAccessEnabled = hasSharedStorageAccess(context)
+        allFilesAccessEnabled = hasSharedStorageAccess()
         messages = messages + UiMessage(
             "system",
             if (allFilesAccessEnabled) "دسترسی مدیریت همهٔ فایل‌ها فعال شد. ایجنت اکنون می‌تواند فایل‌های حافظهٔ اشتراکی را فهرست و بخواند؛ نوشتن مستقیم همچنان برای هر فایل تأیید جداگانه می‌خواهد."
@@ -970,7 +970,7 @@ private fun MessageBubble(message: UiMessage) {
     }
 }
 
-private fun hasSharedStorageAccess(context: Context): Boolean =
+private fun hasSharedStorageAccess(): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
 
 private fun runtimePermissions(name: String): List<String> = when (name.lowercase()) {
