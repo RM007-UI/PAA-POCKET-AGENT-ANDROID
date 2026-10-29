@@ -28,6 +28,7 @@ class AgentEngine(context: Context, private val chatStore: ChatStore = ChatStore
     private val appContext = context.applicationContext
     private val prefs = SecurePrefs(appContext)
     val workspace = WorkspaceManager(appContext)
+    private val sharedStorage = SharedStorageAccess(appContext)
     private val terminalTools = TerminalTools(appContext)
     private val history = mutableListOf<JSONObject>()
     private var currentChatId: String = chatStore.currentChatId()
@@ -215,6 +216,39 @@ class AgentEngine(context: Context, private val chatStore: ChatStore = ChatStore
         "read_file" -> withContext(Dispatchers.IO) { workspace.readFile(args.optString("path", "")) }
         "search_files" -> withContext(Dispatchers.IO) {
             workspace.searchFiles(args.optString("query", ""), args.optInt("max_matches", 30).coerceIn(1, 30))
+        }
+        "list_shared_storage" -> if (!sharedStorage.hasAccess()) {
+            requestAndroidAccess("special", "all_files")
+            "صفحهٔ مجوز حافظه باز شد؛ «مدیریت همهٔ فایل‌ها» را روشن کن و بعد دوباره فهرست حافظه را بخواه."
+        } else withContext(Dispatchers.IO) {
+            sharedStorage.listFiles(args.optString("path", ""), args.optBoolean("recursive", false))
+        }
+        "read_shared_storage_file" -> if (!sharedStorage.hasAccess()) {
+            requestAndroidAccess("special", "all_files")
+            "صفحهٔ مجوز حافظه باز شد؛ اجازه را روشن کن و بعد دوباره فایل را بخواه."
+        } else withContext(Dispatchers.IO) { sharedStorage.readFile(args.optString("path", "")) }
+        "search_shared_storage" -> if (!sharedStorage.hasAccess()) {
+            requestAndroidAccess("special", "all_files")
+            "صفحهٔ مجوز حافظه باز شد؛ اجازه را روشن کن و بعد جست‌وجو را تکرار کن."
+        } else withContext(Dispatchers.IO) {
+            sharedStorage.searchFiles(args.optString("query", ""), args.optInt("max_matches", 30).coerceIn(1, 30))
+        }
+        "write_shared_storage_file" -> if (!sharedStorage.hasAccess()) {
+            requestAndroidAccess("special", "all_files")
+            "صفحهٔ مجوز حافظه باز شد؛ اجازه را روشن کن و دوباره درخواست نوشتن فایل را بده."
+        } else {
+            val path = args.optString("path", "")
+            val content = args.optString("content", "")
+            val payload = JSONObject().put("path", path).put("content", content).toString()
+            val fullPath = runCatching { java.io.File(sharedStorage.rootPath(), path).canonicalPath }.getOrDefault(path)
+            val preview = content.take(2200) + if (content.length > 2200) "\n… پیش‌نمایش کوتاه شد." else ""
+            confirmCommand(AgentCommandAction(
+                name = "write_shared_storage_file",
+                command = "نوشتن مستقیم در حافظهٔ اشتراکی گوشی\nمسیر: $fullPath\nحجم: ${content.toByteArray(Charsets.UTF_8).size} بایت\nاگر فایل از قبل وجود داشته باشد، جایگزین می‌شود.\n\nپیش‌نمایش محتوا:\n$preview",
+                reason = reason,
+                requiresRoot = false,
+                payload = payload
+            ))
         }
         "write_file" -> withContext(Dispatchers.IO) {
             workspace.writeFile(args.optString("path", ""), args.optString("content", ""))
@@ -450,6 +484,8 @@ You are Pocket Agent, a capable coding agent operating on the user's Android pho
 You have these tools:
 - workspace_info: learn whether a project folder has been selected.
 - list_files, read_file, search_files: explore the selected project and locate relevant code before editing.
+- list_shared_storage, read_shared_storage_file, search_shared_storage: inspect the primary shared storage under /storage/emulated/0 only after the user enables Android's All files access.
+- write_shared_storage_file: write directly to shared storage only after showing the exact target, whether it replaces a file, and a preview for explicit user approval. Sensitive credential files are excluded from reads/writes.
 - write_file, delete_file: edit a PRIVATE WORKING COPY only. The original folder is not modified until the user reviews changes and presses Apply Changes in the app. Never claim edits were applied to the original.
 - run_command: request a normal shell command. The user must inspect and approve it. Commands run from the private working directory when a project is selected, but this is not a strict OS sandbox. Do not use commands to inspect secrets, unrelated personal data, or files outside the task.
 - run_root_command: request a root command through su. This is highly privileged and ALWAYS requires explicit approval. Explain precisely why the command is needed, keep it narrow, and never use root just because it is available. Never perform irreversible or destructive operations unless the user explicitly requested that exact action and has reviewed the exact command.
@@ -477,6 +513,10 @@ Privacy: file contents and command output used as tool results are sent to the c
               {"type":"function","function":{"name":"search_files","description":"Search source files for a literal text string and return file:line matches.","parameters":{"type":"object","properties":{"query":{"type":"string"},"max_matches":{"type":"integer","minimum":1,"maximum":30}},"required":["query"],"additionalProperties":false}}},
               {"type":"function","function":{"name":"write_file","description":"Write or replace a file in the private working copy. The original project will only change after user review and Apply Changes.","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"reason":{"type":"string"}},"required":["path","content","reason"],"additionalProperties":false}}},
               {"type":"function","function":{"name":"delete_file","description":"Stage deletion of one file in the private working copy. Directories cannot be deleted with this tool.","parameters":{"type":"object","properties":{"path":{"type":"string"},"reason":{"type":"string"}},"required":["path","reason"],"additionalProperties":false}}},
+              {"type":"function","function":{"name":"list_shared_storage","description":"List files in primary shared storage (/storage/emulated/0). Requires the user to enable Android All files access. Omit path for the root; set recursive=true only when a recursive listing is useful.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Relative path under the shared-storage root; empty means root."},"recursive":{"type":"boolean"}},"additionalProperties":false}}},
+              {"type":"function","function":{"name":"read_shared_storage_file","description":"Read a small UTF-8 text file from primary shared storage. Credentials and secret key files are blocked to avoid sending them to the AI provider. Requires All files access.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Relative path under /storage/emulated/0."}},"required":["path"],"additionalProperties":false}}},
+              {"type":"function","function":{"name":"search_shared_storage","description":"Search readable text files in primary shared storage for a literal phrase. Requires All files access; sensitive credential files are excluded and search is bounded.","parameters":{"type":"object","properties":{"query":{"type":"string"},"max_matches":{"type":"integer","minimum":1,"maximum":30}},"required":["query"],"additionalProperties":false}}},
+              {"type":"function","function":{"name":"write_shared_storage_file","description":"Create or replace one file directly in primary shared storage. The user must approve the exact path and content preview before writing. Paths must be relative to /storage/emulated/0. Credentials and system-protected directories are blocked.","parameters":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string","maxLength":2097152},"reason":{"type":"string"}},"required":["path","content","reason"],"additionalProperties":false}}},
               {"type":"function","function":{"name":"get_device_info","description":"Read basic device model, Android version, CPU ABI and app-private available storage; do not return unique sensitive identifiers.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
               {"type":"function","function":{"name":"read_global_memory","description":"Read the shared non-sensitive memory used across all chats.","parameters":{"type":"object","properties":{},"additionalProperties":false}}},
               {"type":"function","function":{"name":"remember_global","description":"Append one concise, stable, non-sensitive preference or fact to shared memory. Never store credentials or sensitive personal details.","parameters":{"type":"object","properties":{"note":{"type":"string","maxLength":700}},"required":["note"],"additionalProperties":false}}},
