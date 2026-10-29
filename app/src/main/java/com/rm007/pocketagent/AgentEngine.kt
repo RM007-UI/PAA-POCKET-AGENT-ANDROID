@@ -240,11 +240,9 @@ class AgentEngine(context: Context, private val chatStore: ChatStore = ChatStore
             val path = args.optString("path", "")
             val content = args.optString("content", "")
             val payload = JSONObject().put("path", path).put("content", content).toString()
-            val fullPath = runCatching { java.io.File(sharedStorage.rootPath(), path).canonicalPath }.getOrDefault(path)
-            val preview = content.take(2200) + if (content.length > 2200) "\n… پیش‌نمایش کوتاه شد." else ""
             confirmCommand(AgentCommandAction(
                 name = "write_shared_storage_file",
-                command = "نوشتن مستقیم در حافظهٔ اشتراکی گوشی\nمسیر: $fullPath\nحجم: ${content.toByteArray(Charsets.UTF_8).size} بایت\nاگر فایل از قبل وجود داشته باشد، جایگزین می‌شود.\n\nپیش‌نمایش محتوا:\n$preview",
+                command = sharedStorage.writePreview(path, content),
                 reason = reason,
                 requiresRoot = false,
                 payload = payload
