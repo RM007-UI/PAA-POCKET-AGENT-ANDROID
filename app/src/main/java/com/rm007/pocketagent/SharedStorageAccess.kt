@@ -28,7 +28,7 @@ class SharedStorageAccess(context: Context) {
         require(target.isDirectory) { "مسیر پوشه نیست: $path" }
         val files = if (recursive) {
             target.walkTopDown()
-                .onEnter { directory -> isInside(root, directory) }
+                .onEnter { directory -> directory == root || isInside(root, directory) }
                 .drop(1)
                 .take(MAX_LIST_ENTRIES + 1)
                 .toList()
@@ -77,7 +77,7 @@ class SharedStorageAccess(context: Context) {
         val matches = mutableListOf<String>()
         var checked = 0
         root.walkTopDown()
-            .onEnter { directory -> isInside(root, directory) }
+            .onEnter { directory -> directory == root || isInside(root, directory) }
             .filter { it.isFile }
             .forEach { file ->
                 if (matches.size >= maxMatches || checked >= MAX_SEARCH_FILES) return@forEach
