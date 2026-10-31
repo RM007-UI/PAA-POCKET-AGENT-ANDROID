@@ -364,17 +364,23 @@ internal object EmbeddedTermuxRuntime {
                 Os.symlink(linkTarget, link.absolutePath)
             }
 
-            // ZipInputStream does not expose Unix external attributes, so the archive's
-            // executable bits are lost during extraction. Restore them explicitly after
-            // creating symlinks (not before): bin/bash is commonly a symlink into lib/.
-            val stagedBin = File(stage, "bin")
-            stagedBin.listFiles()?.forEach { entry ->
-                if (entry.isFile) Os.chmod(entry.absolutePath, 448) // 0700
+            // ZipInputStream does not expose Unix external attributes, so executable
+            // bits are lost. Many Termux commands in bin/ (including id) are symlinks
+            // whose real ELF target lives elsewhere under lib/ or libexec/. Restore
+            // execute permission on every extracted regular file AFTER symlink creation;
+            // otherwise second-stage postinst scripts fail with "Permission denied".
+            stage.walkTopDown().forEach { entry ->
+                if (entry.isFile) {
+                    Os.chmod(entry.canonicalPath, 448) // 0700; private app-owned prefix
+                }
             }
             val stagedBash = File(stage, "bin/bash")
             check(stagedBash.isFile) { "فایل Bash در bootstrap پیدا نشد." }
-            Os.chmod(stagedBash.canonicalPath, 448) // 0700, follows bin/bash symlink
             check(stagedBash.canExecute()) { "مجوز اجرای Bash پس از استخراج تنظیم نشد." }
+            val stagedId = File(stage, "bin/id")
+            check(stagedId.isFile && stagedId.canExecute()) {
+                "فایل id یا مقصد اجرایی آن پس از استخراج مجوز اجرا ندارد."
+            }
 
             backup.deleteRecursively()
             if (target.exists()) check(target.renameTo(backup)) { "پوشهٔ قدیمی محیط داخلی قابل جابه‌جایی نیست." }
