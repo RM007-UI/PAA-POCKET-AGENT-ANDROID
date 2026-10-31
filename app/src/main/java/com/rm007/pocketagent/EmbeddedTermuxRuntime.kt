@@ -337,6 +337,18 @@ internal object EmbeddedTermuxRuntime {
                 Os.symlink(linkTarget, link.absolutePath)
             }
 
+            // ZipInputStream does not expose Unix external attributes, so the archive's
+            // executable bits are lost during extraction. Restore them explicitly after
+            // creating symlinks (not before): bin/bash is commonly a symlink into lib/.
+            val stagedBin = File(stage, "bin")
+            stagedBin.listFiles()?.forEach { entry ->
+                if (entry.isFile) Os.chmod(entry.absolutePath, 448) // 0700
+            }
+            val stagedBash = File(stage, "bin/bash")
+            check(stagedBash.isFile) { "فایل Bash در bootstrap پیدا نشد." }
+            Os.chmod(stagedBash.canonicalPath, 448) // 0700, follows bin/bash symlink
+            check(stagedBash.canExecute()) { "مجوز اجرای Bash پس از استخراج تنظیم نشد." }
+
             backup.deleteRecursively()
             if (target.exists()) check(target.renameTo(backup)) { "پوشهٔ قدیمی محیط داخلی قابل جابه‌جایی نیست." }
             if (!stage.renameTo(target)) {
