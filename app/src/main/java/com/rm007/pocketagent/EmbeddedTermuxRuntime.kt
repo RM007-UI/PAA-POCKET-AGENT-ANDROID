@@ -260,8 +260,13 @@ internal object EmbeddedTermuxRuntime {
         terminalEnvironment(context).forEach { entry ->
             builder.environment()[entry.substringBefore('=')] = entry.substringAfter('=') 
         }
-        // Do not preload termux-exec until its postinst has configured it.
-        builder.environment().remove("LD_PRELOAD")
+        // Android 10+ blocks direct execve() of app-private ELF files. The bootstrap
+        // second-stage itself invokes Termux binaries such as "id" before termux-exec's
+        // postinst has run. Preload the bootstrap's own exec shim from the first process
+        // so those child commands are redirected through linker64 instead of failing 126.
+        val execShim = prefix.resolve("lib/libtermux-exec-ld-preload.so")
+        check(execShim.isFile) { "کتابخانهٔ اولیهٔ termux-exec داخل bootstrap پیدا نشد." }
+        builder.environment()["LD_PRELOAD"] = execShim.absolutePath
         builder.environment()["TERMUX_PACKAGE_MANAGER"] = "apt"
         builder.environment()["TERMUX_PACKAGE_ARCH"] = "aarch64"
         builder.environment()["ANDROID__BUILD_VERSION_SDK"] = Build.VERSION.SDK_INT.toString()
