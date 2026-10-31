@@ -50,39 +50,39 @@ internal object EmbeddedTermuxRuntime {
         }
         if (!isInstalled(context)) {
             val checksumText = try {
-            context.assets.open(CHECKSUM_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
-        } catch (e: Exception) {
-            throw IllegalStateException(
-                "محیط داخلی هنوز داخل این APK قرار نگرفته است. بیلد تازهٔ PAA را پس از تکمیل ساخت Termux نصب کن.",
-                e
-            )
-        }
-        val expectedHash = checksumText.substringBefore(' ').trim()
-        require(expectedHash.matches(Regex("[a-fA-F0-9]{64}"))) {
-            "فایل SHA-256 محیط داخلی نامعتبر است."
-        }
+                context.assets.open(CHECKSUM_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
+            } catch (e: Exception) {
+                throw IllegalStateException(
+                    "محیط داخلی هنوز داخل این APK قرار نگرفته است. بیلد تازهٔ PAA را پس از تکمیل ساخت Termux نصب کن.",
+                    e
+                )
+            }
+            val expectedHash = checksumText.substringBefore(' ').trim()
+            require(expectedHash.matches(Regex("[a-fA-F0-9]{64}"))) {
+                "فایل SHA-256 محیط داخلی نامعتبر است."
+            }
 
-        val archive = File(context.cacheDir, BOOTSTRAP_ASSET)
-        val digest = MessageDigest.getInstance("SHA-256")
-        var total = 0L
-        try {
-            context.assets.open(BOOTSTRAP_ASSET).use { input ->
-                FileOutputStream(archive).use { output ->
-                    val buffer = ByteArray(32 * 1024)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        total += count
-                        require(total <= MAX_BOOTSTRAP_BYTES) { "فایل محیط داخلی از سقف مجاز بیشتر است." }
-                        digest.update(buffer, 0, count)
-                        output.write(buffer, 0, count)
+            val archive = File(context.cacheDir, BOOTSTRAP_ASSET)
+            val digest = MessageDigest.getInstance("SHA-256")
+            var total = 0L
+            try {
+                context.assets.open(BOOTSTRAP_ASSET).use { input ->
+                    FileOutputStream(archive).use { output ->
+                        val buffer = ByteArray(32 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            require(total <= MAX_BOOTSTRAP_BYTES) { "فایل محیط داخلی از سقف مجاز بیشتر است." }
+                            digest.update(buffer, 0, count)
+                            output.write(buffer, 0, count)
+                        }
                     }
                 }
-            }
-            val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
-            require(actualHash.equals(expectedHash, ignoreCase = true)) {
-                "بررسی SHA-256 محیط داخلی ناموفق بود؛ نصب متوقف شد."
-            }
+                val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
+                require(actualHash.equals(expectedHash, ignoreCase = true)) {
+                    "بررسی SHA-256 محیط داخلی ناموفق بود؛ نصب متوقف شد."
+                }
                 installArchive(context, archive)
             } finally {
                 archive.delete()
