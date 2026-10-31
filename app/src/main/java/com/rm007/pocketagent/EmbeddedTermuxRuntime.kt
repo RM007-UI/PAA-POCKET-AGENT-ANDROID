@@ -197,26 +197,34 @@ internal object EmbeddedTermuxRuntime {
         )
         check(script.isFile) { "اسکریپت مرحلهٔ دوم bootstrap پیدا نشد." }
 
+        val marker = prefix.resolve("var/lib/pocket-agent/bootstrap-second-stage-v1")
+        if (marker.isFile) return
+
         val original = script.readText(Charsets.UTF_8)
         val configured = original
             .replace("export TERMUX_PACKAGE_MANAGER=\"\"", "export TERMUX_PACKAGE_MANAGER=\"apt\"")
             .replace("export TERMUX_PACKAGE_ARCH=\"\"", "export TERMUX_PACKAGE_ARCH=\"aarch64\"")
+        check(configured.contains("export TERMUX_PACKAGE_MANAGER=\"apt\"") &&
+            configured.contains("export TERMUX_PACKAGE_ARCH=\"aarch64\"")) {
+            "قالب اسکریپت مرحلهٔ دوم با نسخهٔ مورد انتظار سازگار نیست."
+        }
         if (configured != original) script.writeText(configured, Charsets.UTF_8)
 
-        val preload = prefix.resolve("lib/libtermux-exec-ld-preload.so")
-        if (preload.isFile) return
-
-        // A previous first launch may have created a lock before the missing
-        // package-manager values prevented postinst scripts from running.
+        // The bootstrap archive already contains this .so before postinst runs.
+        // It is therefore NOT a valid signal that package configuration finished.
         val lock = File(script.parentFile, script.name + ".lock")
-        lock.delete()
+        check(!lock.exists()) {
+            "مرحلهٔ دوم قبلاً شروع شده اما نشانگر تکمیل وجود ندارد. برای جلوگیری از اجرای دوبارهٔ postinst، داده‌های برنامه را پاک و محیط را از نو نصب کن."
+        }
 
         val builder = ProcessBuilder(bashFile(context).absolutePath, script.absolutePath)
             .directory(prefix)
             .redirectErrorStream(true)
         terminalEnvironment(context).forEach { entry ->
-            builder.environment()[entry.substringBefore('=')] = entry.substringAfter('=')
+            builder.environment()[entry.substringBefore('=')] = entry.substringAfter('=') 
         }
+        // Do not preload termux-exec until its postinst has configured it.
+        builder.environment().remove("LD_PRELOAD")
         builder.environment()["TERMUX_PACKAGE_MANAGER"] = "apt"
         builder.environment()["TERMUX_PACKAGE_ARCH"] = "aarch64"
         builder.environment()["ANDROID__BUILD_VERSION_SDK"] = Build.VERSION.SDK_INT.toString()
@@ -237,20 +245,27 @@ internal object EmbeddedTermuxRuntime {
                 }
             } catch (_: Exception) { }
         }
-        val completed = process.waitFor(120, TimeUnit.SECONDS)
+        val completed = process.waitFor(300, TimeUnit.SECONDS)
         if (!completed) {
             process.destroy()
             if (!process.waitFor(1, TimeUnit.SECONDS)) process.destroyForcibly()
         }
         reader.join(2_000)
         val details = synchronized(output) { output.toString().takeLast(5_000) }
-        val ready = completed && process.exitValue() == 0 && preload.isFile
-        if (!ready) {
-            lock.delete()
-            val reason = if (!completed) "مهلت ۱۲۰ ثانیه تمام شد." else "کد خروج: \${process.exitValue()}."
+        val exitCode = if (completed) process.exitValue() else null
+        if (!completed || exitCode != 0) {
+            val reason = if (!completed) "مهلت ۳۰۰ ثانیه تمام شد." else "کد خروج: $exitCode."
             error("پیکربندی اولیهٔ apt/termux-exec کامل نشد. $reason" +
                 if (details.isBlank()) "" else "\n$details")
         }
+
+        check(prefix.resolve("lib/libtermux-exec-ld-preload.so").isFile) {
+            "مرحلهٔ دوم تمام شد اما کتابخانهٔ termux-exec پیدا نشد."
+        }
+        check(marker.parentFile?.mkdirs() == true || marker.parentFile?.isDirectory == true) {
+            "ساخت نشانگر تکمیل bootstrap ناموفق بود."
+        }
+        marker.writeText("completed\n", Charsets.UTF_8)
     }
 
     private fun installArchive(context: Context, archive: File) {
