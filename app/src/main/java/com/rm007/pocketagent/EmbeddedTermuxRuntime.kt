@@ -48,9 +48,8 @@ internal object EmbeddedTermuxRuntime {
         require(Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) {
             "این نسخه از محیط داخلی فعلاً برای گوشی‌های ARM64 ساخته شده است."
         }
-        if (isInstalled(context)) return
-
-        val checksumText = try {
+        if (!isInstalled(context)) {
+            val checksumText = try {
             context.assets.open(CHECKSUM_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
         } catch (e: Exception) {
             throw IllegalStateException(
@@ -84,11 +83,13 @@ internal object EmbeddedTermuxRuntime {
             require(actualHash.equals(expectedHash, ignoreCase = true)) {
                 "بررسی SHA-256 محیط داخلی ناموفق بود؛ نصب متوقف شد."
             }
-            installArchive(context, archive)
-        } finally {
-            archive.delete()
+                installArchive(context, archive)
+            } finally {
+                archive.delete()
+            }
+            check(isInstalled(context)) { "محیط داخلی نصب شد اما Bash یا فایل‌های پایه پیدا نشدند." }
         }
-        check(isInstalled(context)) { "محیط داخلی نصب شد اما Bash یا فایل‌های پایه پیدا نشدند." }
+        ensureBootstrapConfigured(context)
     }
 
     fun terminalEnvironment(context: Context, extraBin: File? = null): Array<String> {
@@ -116,9 +117,15 @@ internal object EmbeddedTermuxRuntime {
             "TERM" to "xterm-256color",
             "COLORTERM" to "truecolor",
             "SHELL" to bashFile(context).absolutePath,
+            "TERMUX_APP__PACKAGE_NAME" to context.packageName,
+            "TERMUX_PACKAGE_MANAGER" to "apt",
+            "TERMUX_PACKAGE_ARCH" to "aarch64",
+            "ANDROID__BUILD_VERSION_SDK" to Build.VERSION.SDK_INT.toString(),
+            "TERMUX__PREFIX" to prefix.absolutePath,
             "PS1" to "pocket-agent$ "
         )
-        val termuxExec = prefix.resolve("lib/libtermux-exec.so")
+        // Created by termux-exec's postinst during bootstrap second-stage.
+        val termuxExec = prefix.resolve("lib/libtermux-exec-ld-preload.so")
         if (termuxExec.isFile) env["LD_PRELOAD"] = termuxExec.absolutePath
         return env.map { (key, value) -> "$key=$value" }.toTypedArray()
     }
@@ -175,6 +182,74 @@ internal object EmbeddedTermuxRuntime {
             else "فرمان پس از $timeoutSeconds ثانیه متوقف شد.\n$text$suffix"
         } catch (e: Exception) {
             "اجرای فرمان در محیط داخلی ناموفق بود: ${e.javaClass.simpleName}: ${e.message ?: "خطای نامشخص"}"
+        }
+    }
+
+    /**
+     * Bootstrap extraction alone is incomplete: dpkg postinst scripts must run.
+     * The generated second-stage script currently has empty package-manager fields.
+     */
+    private fun ensureBootstrapConfigured(context: Context) {
+        val prefix = prefix(context)
+        val script = File(
+            prefix,
+            "etc/termux/termux-bootstrap/second-stage/termux-bootstrap-second-stage.sh"
+        )
+        check(script.isFile) { "اسکریپت مرحلهٔ دوم bootstrap پیدا نشد." }
+
+        val original = script.readText(Charsets.UTF_8)
+        val configured = original
+            .replace("export TERMUX_PACKAGE_MANAGER=\"\"", "export TERMUX_PACKAGE_MANAGER=\"apt\"")
+            .replace("export TERMUX_PACKAGE_ARCH=\"\"", "export TERMUX_PACKAGE_ARCH=\"aarch64\"")
+        if (configured != original) script.writeText(configured, Charsets.UTF_8)
+
+        val preload = prefix.resolve("lib/libtermux-exec-ld-preload.so")
+        if (preload.isFile) return
+
+        // A previous first launch may have created a lock before the missing
+        // package-manager values prevented postinst scripts from running.
+        val lock = File(script.parentFile, script.name + ".lock")
+        lock.delete()
+
+        val builder = ProcessBuilder(bashFile(context).absolutePath, script.absolutePath)
+            .directory(prefix)
+            .redirectErrorStream(true)
+        terminalEnvironment(context).forEach { entry ->
+            builder.environment()[entry.substringBefore('=')] = entry.substringAfter('=')
+        }
+        builder.environment()["TERMUX_PACKAGE_MANAGER"] = "apt"
+        builder.environment()["TERMUX_PACKAGE_ARCH"] = "aarch64"
+        builder.environment()["ANDROID__BUILD_VERSION_SDK"] = Build.VERSION.SDK_INT.toString()
+
+        val process = builder.start()
+        val output = StringBuilder()
+        val reader = thread(name = "paa-termux-bootstrap-config", isDaemon = true) {
+            try {
+                BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)).use { input ->
+                    while (true) {
+                        val line = input.readLine() ?: break
+                        synchronized(output) {
+                            if (output.length < MAX_OUTPUT_CHARS) {
+                                output.append(line.take(MAX_OUTPUT_CHARS - output.length)).append('\n')
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) { }
+        }
+        val completed = process.waitFor(120, TimeUnit.SECONDS)
+        if (!completed) {
+            process.destroy()
+            if (!process.waitFor(1, TimeUnit.SECONDS)) process.destroyForcibly()
+        }
+        reader.join(2_000)
+        val details = synchronized(output) { output.toString().takeLast(5_000) }
+        val ready = completed && process.exitValue() == 0 && preload.isFile
+        if (!ready) {
+            lock.delete()
+            val reason = if (!completed) "مهلت ۱۲۰ ثانیه تمام شد." else "کد خروج: \${process.exitValue()}."
+            error("پیکربندی اولیهٔ apt/termux-exec کامل نشد. $reason" +
+                if (details.isBlank()) "" else "\n$details")
         }
     }
 
