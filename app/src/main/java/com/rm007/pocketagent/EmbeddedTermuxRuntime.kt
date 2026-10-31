@@ -50,7 +50,9 @@ internal object EmbeddedTermuxRuntime {
 
     fun isInstalled(context: Context): Boolean {
         val bash = bashFile(context)
+        val id = File(prefix(context), "bin/id")
         return bash.isFile && bash.canExecute() &&
+            id.isFile && id.canExecute() &&
             File(prefix(context), "bin/apt").isFile &&
             File(prefix(context), "etc/profile").isFile
     }
