@@ -36,6 +36,18 @@ internal object EmbeddedTermuxRuntime {
     fun tempDirectory(context: Context): File = File(prefix(context), "tmp")
     fun bashFile(context: Context): File = File(prefix(context), "bin/bash")
 
+    private fun systemLinkerPath(): String {
+        val linker = if (Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }) {
+            "/system/bin/linker64"
+        } else {
+            "/system/bin/linker"
+        }
+        check(File(linker).canExecute()) {
+            "لینکر سیستمی اندروید پیدا نشد: $linker"
+        }
+        return linker
+    }
+
     fun isInstalled(context: Context): Boolean {
         val bash = bashFile(context)
         return bash.isFile && bash.canExecute() &&
@@ -144,7 +156,16 @@ internal object EmbeddedTermuxRuntime {
             val prefix = prefix(context)
             val work = workingDirectory?.takeIf { it.isDirectory } ?: homeDirectory(context)
             work.mkdirs()
-            val builder = ProcessBuilder(bashFile(context).absolutePath, "--login", "-c", command)
+            // Android 10+ blocks execve() of writable app-private files for targetSdk >= 29.
+            // Launch the Termux ELF through the system dynamic linker instead; termux-exec
+            // (LD_PRELOAD below) then handles child exec() calls and shebang/path rewriting.
+            val builder = ProcessBuilder(
+                systemLinkerPath(),
+                bashFile(context).absolutePath,
+                "--login",
+                "-c",
+                command
+            )
                 .directory(work)
                 .redirectErrorStream(true)
             builder.environment().putAll(terminalEnvironment(context, extraBinDirectory).associate {
@@ -225,7 +246,13 @@ internal object EmbeddedTermuxRuntime {
         // The bootstrap archive already contains this .so before postinst runs.
         // It is therefore NOT a valid signal that package configuration finished.
 
-        val builder = ProcessBuilder(bashFile(context).absolutePath, script.absolutePath)
+        // The bootstrap second stage must also start through linker64 before termux-exec
+        // has been configured and can intercept normal exec() calls.
+        val builder = ProcessBuilder(
+            systemLinkerPath(),
+            bashFile(context).absolutePath,
+            script.absolutePath
+        )
             .directory(prefix)
             .redirectErrorStream(true)
         terminalEnvironment(context).forEach { entry ->
