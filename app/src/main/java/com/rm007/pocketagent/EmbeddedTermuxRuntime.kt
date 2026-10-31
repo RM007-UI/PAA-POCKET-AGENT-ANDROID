@@ -225,16 +225,12 @@ internal object EmbeddedTermuxRuntime {
 
         val original = script.readText(Charsets.UTF_8)
         val lock = File(script.parentFile, script.name + ".lock")
-        val legacyNoOpRun = lock.exists() &&
-            original.contains("export TERMUX_PACKAGE_MANAGER=\"\"") &&
-            original.contains("export TERMUX_PACKAGE_ARCH=\"\"")
-        check(!lock.exists() || legacyNoOpRun) {
-            "مرحلهٔ دوم قبلاً با تنظیمات کامل اجرا شده اما نشانگر تکمیل وجود ندارد. برای جلوگیری از اجرای دوبارهٔ postinst، داده‌های برنامه را پاک و محیط را از نو نصب کن."
+        // A lock without our success marker means a previous first-run attempt was
+        // interrupted or failed inside a package postinst. dpkg can safely resume its
+        // pending configuration when the second-stage script is retried.
+        if (lock.exists()) {
+            check(lock.delete()) { "پاک‌کردن قفل اجرای ناقص قبلی ناموفق بود." }
         }
-        // Older PAA builds let Termux's login-profile fallback run this script
-        // with both values empty. That created the lock but skipped every apt postinst.
-        // The untouched template proves that legacy run was a no-op, so it is safe to retry once.
-        if (legacyNoOpRun) check(lock.delete()) { "پاک‌کردن قفل اجرای ناقص قبلی ناموفق بود." }
 
         val configured = original
             .replace("export TERMUX_PACKAGE_MANAGER=\"\"", "export TERMUX_PACKAGE_MANAGER=\"apt\"")
@@ -264,9 +260,14 @@ internal object EmbeddedTermuxRuntime {
         // second-stage itself invokes Termux binaries such as "id" before termux-exec's
         // postinst has run. Preload the bootstrap's own exec shim from the first process
         // so those child commands are redirected through linker64 instead of failing 126.
-        val execShim = prefix.resolve("lib/libtermux-exec-ld-preload.so")
-        check(execShim.isFile) { "کتابخانهٔ اولیهٔ termux-exec داخل bootstrap پیدا نشد." }
+        // Before termux-exec's postinst runs, the generic LD_PRELOAD alias in the
+        // bootstrap may still point at the direct-exec shim. Android 10+ needs the
+        // explicit system-linker variant so exec("perl", ...) becomes linker64 + perl
+        // + its arguments (not linker64 + script arguments).
+        val execShim = prefix.resolve("lib/libtermux-exec-linker-ld-preload.so")
+        check(execShim.isFile) { "نسخهٔ system-linker کتابخانهٔ اولیهٔ termux-exec پیدا نشد." }
         builder.environment()["LD_PRELOAD"] = execShim.absolutePath
+        builder.environment()["TERMUX_EXEC__SYSTEM_LINKER_EXEC__MODE"] = "force"
         builder.environment()["TERMUX_PACKAGE_MANAGER"] = "apt"
         builder.environment()["TERMUX_PACKAGE_ARCH"] = "aarch64"
         builder.environment()["ANDROID__BUILD_VERSION_SDK"] = Build.VERSION.SDK_INT.toString()
@@ -296,6 +297,9 @@ internal object EmbeddedTermuxRuntime {
         val details = synchronized(output) { output.toString().takeLast(5_000) }
         val exitCode = if (completed) process.exitValue() else null
         if (!completed || exitCode != 0) {
+            // Do not leave the second-stage lock behind after a failed postinst.
+            // The next launch can retry dpkg's pending configuration.
+            lock.delete()
             val reason = if (!completed) "مهلت ۳۰۰ ثانیه تمام شد." else "کد خروج: $exitCode."
             error("پیکربندی اولیهٔ apt/termux-exec کامل نشد. $reason" +
                 if (details.isBlank()) "" else "\n$details")
