@@ -201,6 +201,18 @@ internal object EmbeddedTermuxRuntime {
         if (marker.isFile) return
 
         val original = script.readText(Charsets.UTF_8)
+        val lock = File(script.parentFile, script.name + ".lock")
+        val legacyNoOpRun = lock.exists() &&
+            original.contains("export TERMUX_PACKAGE_MANAGER=\"\"") &&
+            original.contains("export TERMUX_PACKAGE_ARCH=\"\"")
+        check(!lock.exists() || legacyNoOpRun) {
+            "مرحلهٔ دوم قبلاً با تنظیمات کامل اجرا شده اما نشانگر تکمیل وجود ندارد. برای جلوگیری از اجرای دوبارهٔ postinst، داده‌های برنامه را پاک و محیط را از نو نصب کن."
+        }
+        // Older PAA builds let Termux's login-profile fallback run this script
+        // with both values empty. That created the lock but skipped every apt postinst.
+        // The untouched template proves that legacy run was a no-op, so it is safe to retry once.
+        if (legacyNoOpRun) check(lock.delete()) { "پاک‌کردن قفل اجرای ناقص قبلی ناموفق بود." }
+
         val configured = original
             .replace("export TERMUX_PACKAGE_MANAGER=\"\"", "export TERMUX_PACKAGE_MANAGER=\"apt\"")
             .replace("export TERMUX_PACKAGE_ARCH=\"\"", "export TERMUX_PACKAGE_ARCH=\"aarch64\"")
@@ -212,10 +224,6 @@ internal object EmbeddedTermuxRuntime {
 
         // The bootstrap archive already contains this .so before postinst runs.
         // It is therefore NOT a valid signal that package configuration finished.
-        val lock = File(script.parentFile, script.name + ".lock")
-        check(!lock.exists()) {
-            "مرحلهٔ دوم قبلاً شروع شده اما نشانگر تکمیل وجود ندارد. برای جلوگیری از اجرای دوبارهٔ postinst، داده‌های برنامه را پاک و محیط را از نو نصب کن."
-        }
 
         val builder = ProcessBuilder(bashFile(context).absolutePath, script.absolutePath)
             .directory(prefix)
