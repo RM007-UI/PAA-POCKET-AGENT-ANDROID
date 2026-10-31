@@ -12,8 +12,8 @@ android {
         applicationId = "com.rm007.pocketagent"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.10.0"
+        versionCode = 11
+        versionName = "0.11.0"
     }
 
     buildFeatures { compose = true }
