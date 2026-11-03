@@ -41,7 +41,7 @@ These capabilities remain intact. Remote Codex integration must not silently byp
 
 ### Remote host
 - Runs a compatible Codex CLI/app-server installation on a supported desktop or server OS.
-- Exposes the app-server only through WSS with bearer-token authentication, or through a private SSH-forwarded loopback connection. Never expose an unauthenticated listener.
+- Exposes the app-server only through WSS with bearer-token authentication. Never expose an unauthenticated listener.
 - Uses a dedicated low-privilege OS account and a dedicated project directory.
 - Keeps Codex sandbox and approval policies enabled; no unrestricted host-wide access by default.
 - Does not expose an unauthenticated public WebSocket listener.
