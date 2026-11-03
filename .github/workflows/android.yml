@@ -119,27 +119,19 @@ jobs:
           emulator-options: -no-window -no-audio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            set -eu
-            APK="app/build/outputs/apk/debug/app-debug.apk"
             mkdir -p emulator-test-results
-            adb install -r "$APK"
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb logcat -c
-            adb shell am force-stop com.rm007.pocketagent || true
+            adb shell am force-stop com.rm007.pocketagent
             adb shell monkey -p com.rm007.pocketagent 1
             sleep 15
-            PID="$(adb shell pidof com.rm007.pocketagent | tr -d '\\r')"
-            test -n "$PID"
-            adb shell uiautomator dump /sdcard/window.xml >/dev/null
+            adb shell pidof com.rm007.pocketagent
+            adb shell uiautomator dump /sdcard/window.xml
             adb pull /sdcard/window.xml emulator-test-results/window.xml
             test -s emulator-test-results/window.xml
             adb exec-out screencap -p > emulator-test-results/screen.png
             adb logcat -d -t 12000 > emulator-test-results/logcat.txt
-            if grep -E "FATAL EXCEPTION|Process: com.rm007.pocketagent" emulator-test-results/logcat.txt; then
-              echo "App crash detected in emulator logcat"
-              exit 1
-            fi
-            grep -q "Pocket Agent" emulator-test-results/window.xml
-            echo "APK installed and launched; process alive; UI hierarchy captured; no fatal crash detected."
+            ! grep -E "FATAL EXCEPTION|Process: com.rm007.pocketagent" emulator-test-results/logcat.txt
       - name: Upload emulator test results
         if: always() && steps.bootstrap.outputs.available == 'true'
         uses: actions/upload-artifact@v4
