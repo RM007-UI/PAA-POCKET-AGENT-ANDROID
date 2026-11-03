@@ -256,6 +256,25 @@ internal object EmbeddedTermuxRuntime {
         }
         if (configured != original) script.writeText(configured, Charsets.UTF_8)
 
+        // dpkg-perl's bootstrap postinst tries to fetch Locale::gettext from CPAN.
+        // Network availability is not guaranteed during first launch, and this
+        // optional Perl locale module must not block the entire terminal bootstrap.
+        // Defer that optional module install; users can install it later when online.
+        val perlPostinst = prefix.resolve("var/lib/dpkg/info/dpkg-perl.postinst")
+        if (perlPostinst.isFile) {
+            val perlScript = perlPostinst.readText(Charsets.UTF_8)
+            val cpanCommand = "cpan -Ti Locale::gettext"
+            if (perlScript.contains(cpanCommand)) {
+                perlPostinst.writeText(
+                    perlScript.replace(
+                        cpanCommand,
+                        "echo \"Skipping optional Locale::gettext CPAN install during bootstrap\""
+                    ),
+                    Charsets.UTF_8
+                )
+            }
+        }
+
         // The bootstrap archive already contains this .so before postinst runs.
         // It is therefore NOT a valid signal that package configuration finished.
 
