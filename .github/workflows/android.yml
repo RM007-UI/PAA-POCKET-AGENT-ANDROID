@@ -8,6 +8,7 @@ on:
       - "build.gradle.kts"
       - "settings.gradle.kts"
       - "gradle.properties"
+      - ".github/workflows/**"
   workflow_dispatch:
   workflow_run:
     workflows: ["Build embedded Termux runtime for PAA"]
@@ -105,4 +106,41 @@ jobs:
           name: pocket-agent-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Run Android emulator smoke tests
+        if: steps.bootstrap.outputs.available == 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          emulator-options: -no-window -no-audio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            APK="app/build/outputs/apk/debug/app-debug.apk"
+            mkdir -p emulator-test-results
+            adb install -r "$APK"
+            adb shell am force-stop com.rm007.pocketagent || true
+            adb shell monkey -p com.rm007.pocketagent 1
+            sleep 15
+            adb shell pidof com.rm007.pocketagent
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null
+            adb pull /sdcard/window.xml emulator-test-results/window.xml
+            adb logcat -d -t 12000 > emulator-test-results/logcat.txt
+            if grep -E "FATAL EXCEPTION|Process: com.rm007.pocketagent" emulator-test-results/logcat.txt; then
+              echo "App crash detected in emulator logcat"
+              exit 1
+            fi
+            grep -q "com.rm007.pocketagent" emulator-test-results/window.xml
+            echo "APK installed and launched; process alive; no fatal crash detected."
+      - name: Upload emulator test results
+        if: always() && steps.bootstrap.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocket-agent-emulator-test-results
+          path: emulator-test-results/
+          if-no-files-found: ignore
           retention-days: 14
