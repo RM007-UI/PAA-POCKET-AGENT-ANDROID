@@ -126,6 +126,16 @@ private fun PocketAgentApp() {
     val agent = remember { AgentEngine(context.applicationContext, chatStore).apply { selectChat(chatStore.currentChatId()) } }
     val securePrefs = remember { SecurePrefs(context.applicationContext) }
 
+    var messages by remember(currentChatId) {
+        val saved = chatStore.loadMessages(currentChatId).map { UiMessage(it.role, it.text) }
+        mutableStateOf(saved.ifEmpty {
+            listOf(UiMessage("assistant", "سلام! من Pocket Agent هستم. گفتگو و حافظهٔ مدل این چت به‌صورت جداگانه ذخیره می‌شود؛ حافظهٔ کلی هم بین همهٔ چت‌ها مشترک است."))
+        })
+    }
+    var chatList by remember { mutableStateOf(chatStore.listChats()) }
+    var input by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+
     var remoteMode by remember { mutableStateOf(false) }
     var remoteConnected by remember { mutableStateOf(false) }
     val remoteClientRef = remember { arrayOfNulls<CodexRemoteClient>(1) }
@@ -165,15 +175,6 @@ private fun PocketAgentApp() {
         ).also { remoteClientRef[0] = it }
     }
 
-    var messages by remember(currentChatId) {
-        val saved = chatStore.loadMessages(currentChatId).map { UiMessage(it.role, it.text) }
-        mutableStateOf(saved.ifEmpty {
-            listOf(UiMessage("assistant", "سلام! من Pocket Agent هستم. گفتگو و حافظهٔ مدل این چت به‌صورت جداگانه ذخیره می‌شود؛ حافظهٔ کلی هم بین همهٔ چت‌ها مشترک است."))
-        })
-    }
-    var chatList by remember { mutableStateOf(chatStore.listChats()) }
-    var input by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showChats by remember { mutableStateOf(false) }
     var showToolbox by remember { mutableStateOf(false) }
