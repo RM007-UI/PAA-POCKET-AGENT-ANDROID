@@ -74,7 +74,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --name "paa-embedded-termux-bootstrap-multiarch" \
             --dir "$RUNNER_TEMP/paa-bootstrap"
-          (cd "$RUNNER_TEMP/paa-bootstrap" && sha256sum -c bootstrap-aarch64.zip.sha256)
+          (cd "$RUNNER_TEMP/paa-bootstrap" && sha256sum -c bootstrap-aarch64.zip.sha256 bootstrap-x86_64.zip.sha256)
           for ARCH in aarch64 x86_64; do
             install -m 0644 "$RUNNER_TEMP/paa-bootstrap/bootstrap-$ARCH.zip" "app/src/main/assets/bootstrap-$ARCH.zip"
             install -m 0644 "$RUNNER_TEMP/paa-bootstrap/bootstrap-$ARCH.zip.sha256" "app/src/main/assets/bootstrap-$ARCH.zip.sha256"
@@ -132,7 +132,7 @@ jobs:
             adb shell uiautomator dump /sdcard/initial.xml
             adb pull /sdcard/initial.xml emulator-test-results/initial.xml
             python3 -c 'import xml.etree.ElementTree as E,subprocess; r=E.parse("emulator-test-results/initial.xml").getroot(); n=next((n for n in r.iter("node") if "ترمینال داخلی PAA" in n.attrib.get("content-desc","")),None); assert n is not None,"Terminal button not found in UI"; b=n.attrib["bounds"].replace("][",",").replace("[","").replace("]","").split(","); subprocess.run(["adb","shell","input","tap",str((int(b[0])+int(b[2]))//2),str((int(b[1])+int(b[3]))//2)],check=True)'
-            adb shell 'for i in $(seq 1 300); do run-as com.rm007.pocketagent test -x files/usr/bin/bash && exit 0; sleep 1; done; exit 1'
+            adb shell 'for i in $(seq 1 300); do run-as com.rm007.pocketagent test -f files/usr/var/lib/pocket-agent/bootstrap-second-stage-v1 && exit 0; sleep 1; done; exit 1'
             adb shell 'run-as com.rm007.pocketagent sh -c "P=/data/data/com.rm007.pocketagent/files/usr; export PREFIX=$P TERMUX_PREFIX=$P HOME=/data/data/com.rm007.pocketagent/files/home TMPDIR=$P/tmp PATH=$P/bin:/system/bin:/system/xbin LD_LIBRARY_PATH=$P/lib LD_PRELOAD=$P/lib/libtermux-exec-linker-ld-preload.so TERMUX_EXEC__SYSTEM_LINKER_EXEC__MODE=force TERMUX_PACKAGE_MANAGER=apt TERMUX_PACKAGE_ARCH=x86_64 ANDROID_ROOT=/system ANDROID_DATA=/data ANDROID__BUILD_VERSION_SDK=35; /system/bin/linker64 $P/bin/bash --login -c \"printf PAA_X86_64_RUNTIME_OK; uname -m; id; dpkg --version; pkg --version\""' > emulator-test-results/runtime-smoke.txt
             grep -q PAA_X86_64_RUNTIME_OK emulator-test-results/runtime-smoke.txt
             grep -q x86_64 emulator-test-results/runtime-smoke.txt
