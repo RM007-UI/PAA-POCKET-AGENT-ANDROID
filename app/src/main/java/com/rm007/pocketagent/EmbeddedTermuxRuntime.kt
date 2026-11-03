@@ -21,8 +21,6 @@ import kotlin.concurrent.thread
  * package/prefix and bundled into the APK by GitHub Actions.
  */
 internal object EmbeddedTermuxRuntime {
-    private const val BOOTSTRAP_ASSET = "bootstrap-aarch64.zip"
-    private const val CHECKSUM_ASSET = "bootstrap-aarch64.zip.sha256"
     private const val MAX_BOOTSTRAP_BYTES = 300L * 1024 * 1024
     private const val MAX_OUTPUT_CHARS = 18_000
 
@@ -30,6 +28,15 @@ internal object EmbeddedTermuxRuntime {
     // may return the /data/user/0 alias and leave runtime PREFIX inconsistent.
     private fun appFilesDirectory(context: Context): File =
         File("/data/data/${context.packageName}/files")
+
+    private fun termuxArchitecture(): String = when (Build.SUPPORTED_ABIS.firstOrNull { it == "arm64-v8a" || it == "x86_64" }) {
+        "arm64-v8a" -> "aarch64"
+        "x86_64" -> "x86_64"
+        else -> error("Unsupported device ABI: ${Build.SUPPORTED_ABIS.joinToString()}")
+    }
+
+    private fun bootstrapAssetName(): String = "bootstrap-${termuxArchitecture()}.zip"
+    private fun checksumAssetName(): String = "${bootstrapAssetName()}.sha256"
 
     fun prefix(context: Context): File = File(appFilesDirectory(context), "usr")
     fun homeDirectory(context: Context): File = File(appFilesDirectory(context), "home")
@@ -59,15 +66,15 @@ internal object EmbeddedTermuxRuntime {
 
     /** Installs once from the APK asset; subsequent calls are a cheap file check. */
     fun ensureInstalled(context: Context) {
-        require(Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }) {
-            "این نسخه از محیط داخلی فعلاً برای گوشی‌های ARM64 ساخته شده است."
-        }
+        val architecture = termuxArchitecture()
+        val bootstrapAsset = bootstrapAssetName()
+        val checksumAsset = checksumAssetName()
         if (!isInstalled(context)) {
             val checksumText = try {
-                context.assets.open(CHECKSUM_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
+                context.assets.open(checksumAsset).bufferedReader(Charsets.UTF_8).use { it.readText() }.trim()
             } catch (e: Exception) {
                 throw IllegalStateException(
-                    "محیط داخلی هنوز داخل این APK قرار نگرفته است. بیلد تازهٔ PAA را پس از تکمیل ساخت Termux نصب کن.",
+                    "محیط داخلی $architecture هنوز داخل این APK قرار نگرفته است. بیلد تازهٔ PAA را پس از تکمیل ساخت Termux نصب کن.",
                     e
                 )
             }
@@ -76,11 +83,11 @@ internal object EmbeddedTermuxRuntime {
                 "فایل SHA-256 محیط داخلی نامعتبر است."
             }
 
-            val archive = File(context.cacheDir, BOOTSTRAP_ASSET)
+            val archive = File(context.cacheDir, bootstrapAsset)
             val digest = MessageDigest.getInstance("SHA-256")
             var total = 0L
             try {
-                context.assets.open(BOOTSTRAP_ASSET).use { input ->
+                context.assets.open(bootstrapAsset).use { input ->
                     FileOutputStream(archive).use { output ->
                         val buffer = ByteArray(32 * 1024)
                         while (true) {
@@ -137,7 +144,7 @@ internal object EmbeddedTermuxRuntime {
             "SHELL" to bashFile(context).absolutePath,
             "TERMUX_APP__PACKAGE_NAME" to context.packageName,
             "TERMUX_PACKAGE_MANAGER" to "apt",
-            "TERMUX_PACKAGE_ARCH" to "aarch64",
+            "TERMUX_PACKAGE_ARCH" to termuxArchitecture(),
             "ANDROID__BUILD_VERSION_SDK" to Build.VERSION.SDK_INT.toString(),
             "TERMUX__PREFIX" to prefix.absolutePath,
             "PS1" to "pocket-agent$ "
@@ -264,9 +271,9 @@ internal object EmbeddedTermuxRuntime {
 
         val configured = original
             .replace("export TERMUX_PACKAGE_MANAGER=\"\"", "export TERMUX_PACKAGE_MANAGER=\"apt\"")
-            .replace("export TERMUX_PACKAGE_ARCH=\"\"", "export TERMUX_PACKAGE_ARCH=\"aarch64\"")
+            .replace("export TERMUX_PACKAGE_ARCH=\"\"", "export TERMUX_PACKAGE_ARCH=\"${termuxArchitecture()}\"")
         check(configured.contains("export TERMUX_PACKAGE_MANAGER=\"apt\"") &&
-            configured.contains("export TERMUX_PACKAGE_ARCH=\"aarch64\"")) {
+            configured.contains("export TERMUX_PACKAGE_ARCH=\"${termuxArchitecture()}\"")) {
             "قالب اسکریپت مرحلهٔ دوم با نسخهٔ مورد انتظار سازگار نیست."
         }
         if (configured != original) script.writeText(configured, Charsets.UTF_8)
@@ -318,7 +325,7 @@ internal object EmbeddedTermuxRuntime {
         builder.environment()["LD_PRELOAD"] = execShim.absolutePath
         builder.environment()["TERMUX_EXEC__SYSTEM_LINKER_EXEC__MODE"] = "force"
         builder.environment()["TERMUX_PACKAGE_MANAGER"] = "apt"
-        builder.environment()["TERMUX_PACKAGE_ARCH"] = "aarch64"
+        builder.environment()["TERMUX_PACKAGE_ARCH"] = termuxArchitecture()
         builder.environment()["ANDROID__BUILD_VERSION_SDK"] = Build.VERSION.SDK_INT.toString()
 
         val process = builder.start()
