@@ -18,6 +18,10 @@ jobs:
   bootstrap:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [aarch64, x86_64]
     env:
       TERMUX_BUILDER_IMAGE_NAME: ghcr.io/termux/package-builder:latest
     steps:
@@ -117,34 +121,66 @@ jobs:
           PY
           CONTAINER_NAME=termux-package-builder ./scripts/run-docker.sh mkdir -p /tmp/paa-bootstrap-output
 
-      - name: Build ARM64 and x86_64 Termux bootstraps with developer tools
+      - name: Build ${{ matrix.arch }} Termux bootstrap with developer tools
         working-directory: termux-packages
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          CONTAINER_NAME=termux-package-builder ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures "$ARCH" --add git,python,wget,tree
+          docker cp "termux-package-builder:/tmp/paa-bootstrap-output/bootstrap-$ARCH.zip" "bootstrap-$ARCH.zip"
+          test -s "bootstrap-$ARCH.zip"
+
+      - name: Verify bootstrap and calculate checksum
+        working-directory: termux-packages
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          test -s "bootstrap-$ARCH.zip"
+          unzip -l "bootstrap-$ARCH.zip" | grep -q 'SYMLINKS.txt'
+          sha256sum "bootstrap-$ARCH.zip" > "bootstrap-$ARCH.zip.sha256"
+          cat "bootstrap-$ARCH.zip.sha256"
+
+      - name: Upload verified ${{ matrix.arch }} bootstrap
+        uses: actions/upload-artifact@v4
+        with:
+          name: paa-embedded-termux-bootstrap-${{ matrix.arch }}
+          path: |
+            termux-packages/bootstrap-${{ matrix.arch }}.zip
+            termux-packages/bootstrap-${{ matrix.arch }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  merge-bootstrap-artifacts:
+    needs: bootstrap
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download both architecture artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: paa-embedded-termux-bootstrap-*
+          path: bootstrap-artifacts
+          merge-multiple: true
+
+      - name: Verify merged bootstrap files
         run: |
           set -euo pipefail
           for ARCH in aarch64 x86_64; do
-            CONTAINER_NAME=termux-package-builder ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures "$ARCH" --add git,python,wget,tree
-            docker cp "termux-package-builder:/tmp/paa-bootstrap-output/bootstrap-$ARCH.zip" "bootstrap-$ARCH.zip"
-            test -s "bootstrap-$ARCH.zip"
+            test -s "bootstrap-artifacts/bootstrap-$ARCH.zip"
+            test -s "bootstrap-artifacts/bootstrap-$ARCH.zip.sha256"
+            (cd bootstrap-artifacts && sha256sum -c "bootstrap-$ARCH.zip.sha256")
+            unzip -l "bootstrap-artifacts/bootstrap-$ARCH.zip" | grep -q 'SYMLINKS.txt'
           done
 
-      - name: Verify both bootstraps and calculate checksums
-        working-directory: termux-packages
-        run: |
-          set -euo pipefail
-          for ARCH in aarch64 x86_64; do
-            test -s "bootstrap-$ARCH.zip"
-            unzip -l "bootstrap-$ARCH.zip" | grep -q 'SYMLINKS.txt'
-            sha256sum "bootstrap-$ARCH.zip" > "bootstrap-$ARCH.zip.sha256"
-            cat "bootstrap-$ARCH.zip.sha256"
-          done
-      - name: Upload verified bootstrap artifact
+      - name: Publish combined multiarch bootstrap artifact
         uses: actions/upload-artifact@v4
         with:
           name: paa-embedded-termux-bootstrap-multiarch
           path: |
-            termux-packages/bootstrap-aarch64.zip
-            termux-packages/bootstrap-aarch64.zip.sha256
-            termux-packages/bootstrap-x86_64.zip
-            termux-packages/bootstrap-x86_64.zip.sha256
+            bootstrap-artifacts/bootstrap-aarch64.zip
+            bootstrap-artifacts/bootstrap-aarch64.zip.sha256
+            bootstrap-artifacts/bootstrap-x86_64.zip
+            bootstrap-artifacts/bootstrap-x86_64.zip.sha256
           if-no-files-found: error
           retention-days: 30
