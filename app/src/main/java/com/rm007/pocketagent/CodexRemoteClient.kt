@@ -53,13 +53,13 @@ class CodexRemoteClient(
         require(!isConnected()) { "از قبل به Codex متصل هستی." }
         val uri = URI(endpoint.trim())
         val scheme = uri.scheme?.lowercase()
-        require(scheme == "wss" || (scheme == "ws" && isLoopback(uri.host))) {
-            "برای اتصال راه دور از wss:// استفاده کن. ws:// فقط برای localhost مجاز است."
+        require(scheme == "wss") {
+            "اتصال Codex Remote فقط از طریق wss:// امن پشتیبانی می‌شود."
         }
         require(uri.host != null && uri.userInfo == null && uri.fragment == null) {
             "آدرس اتصال معتبر نیست."
         }
-        require(scheme != "wss" || bearerToken.isNotBlank()) {
+        require(bearerToken.isNotBlank()) {
             "برای اتصال WSS باید توکن دسترسی سرور را وارد کنی."
         }
 
@@ -278,11 +278,6 @@ class CodexRemoteClient(
         val error = IllegalStateException(message)
         pending.values.forEach { it.completeExceptionally(error) }
         pending.clear()
-    }
-
-    private fun isLoopback(host: String?): Boolean {
-        val normalized = host?.lowercase() ?: return false
-        return normalized == "localhost" || normalized == "127.0.0.1" || normalized == "::1"
     }
 
     companion object {
