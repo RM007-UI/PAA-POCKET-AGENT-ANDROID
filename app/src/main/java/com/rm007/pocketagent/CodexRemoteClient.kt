@@ -45,6 +45,10 @@ class CodexRemoteClient(
     val threadId: String?
         get() = activeThreadId
 
+    fun clearActiveThread() {
+        activeThreadId = null
+    }
+
     suspend fun connect(endpoint: String, bearerToken: String) {
         require(!isConnected()) { "از قبل به Codex متصل هستی." }
         val uri = URI(endpoint.trim())
