@@ -59,6 +59,19 @@ jobs:
           path.write_text(source)
           PY
 
+          # kernel.org mirror timed out while fetching GNU coreutils in CI.
+          # Use the official GNU download host for the same pinned archive/checksum.
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("packages/coreutils/build.sh")
+          source = path.read_text()
+          old = "https://mirrors.kernel.org/gnu/coreutils/coreutils-${TERMUX_PKG_VERSION}.tar.xz"
+          new = "https://ftp.gnu.org/gnu/coreutils/coreutils-${TERMUX_PKG_VERSION}.tar.xz"
+          if old not in source:
+              raise SystemExit("Expected coreutils kernel.org source URL was not found")
+          path.write_text(source.replace(old, new, 1))
+          PY
+
           # This upstream bootstrap still lists bzip2 although this pinned source revision
           # no longer has a bzip2 package recipe. It is not required for the embedded shell.
           python3 - <<'PY'
