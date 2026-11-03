@@ -138,6 +138,7 @@ private fun PocketAgentApp() {
 
     var remoteMode by remember { mutableStateOf(false) }
     var remoteConnected by remember { mutableStateOf(false) }
+    var remoteStreamingMessageIndex by remember { mutableStateOf<Int?>(null) }
     val remoteClientRef = remember { arrayOfNulls<CodexRemoteClient>(1) }
     val remoteClient = remember {
         CodexRemoteClient(
@@ -145,13 +146,34 @@ private fun PocketAgentApp() {
                 scope.launch(Dispatchers.Main.immediate) {
                     val method = event.optString("method", event.optString("type", "event"))
                     val params = event.optJSONObject("params")
-                    val detail = when (method) {
-                        "item/agentMessage/delta" -> params?.optString("delta").orEmpty()
-                        "turn/completed" -> "اجرای نوبت Remote پایان یافت."
-                        else -> event.toString().take(1800)
+                    when (method) {
+                        "item/agentMessage/delta" -> {
+                            val delta = params?.optString("delta").orEmpty()
+                            if (delta.isNotEmpty()) {
+                                val index = remoteStreamingMessageIndex
+                                if (index == null || index !in messages.indices) {
+                                    remoteStreamingMessageIndex = messages.size
+                                    messages = messages + UiMessage("assistant", delta)
+                                } else {
+                                    val updated = messages.toMutableList()
+                                    updated[index] = updated[index].copy(text = updated[index].text + delta)
+                                    messages = updated
+                                }
+                            }
+                        }
+                        "turn/completed" -> {
+                            messages = messages + UiMessage("system", "اجرای نوبت Codex Remote پایان یافت.")
+                            remoteStreamingMessageIndex = null
+                            busy = false
+                        }
+                        "turn/started", "item/started", "item/completed", "thread/started" -> {
+                            // These lifecycle notifications are intentionally kept out of the chat transcript.
+                        }
+                        else -> {
+                            val detail = event.toString().take(1200)
+                            messages = messages + UiMessage("tool", "Codex · $method\n$detail")
+                        }
                     }
-                    if (detail.isNotBlank()) messages = messages + UiMessage("tool", "Codex · $method\n$detail")
-                    if (method == "turn/completed") busy = false
                 }
             },
             onServerRequest = { request ->
@@ -167,7 +189,10 @@ private fun PocketAgentApp() {
             onConnectionState = { connected, reason ->
                 scope.launch(Dispatchers.Main.immediate) {
                     remoteConnected = connected
-                    if (!connected) busy = false
+                    if (!connected) {
+                        busy = false
+                        remoteStreamingMessageIndex = null
+                    }
                     if (!connected && reason != null) {
                         messages = messages + UiMessage("system", "اتصال Remote قطع شد: $reason")
                     }
@@ -400,6 +425,7 @@ private fun PocketAgentApp() {
         busy = true
         scope.launch {
             var keepBusyForRemoteTurn = false
+            remoteStreamingMessageIndex = null
             try {
                 if (remoteMode) {
                     check(remoteClient.isConnected()) { "ابتدا اتصال Codex Remote را برقرار کن." }
