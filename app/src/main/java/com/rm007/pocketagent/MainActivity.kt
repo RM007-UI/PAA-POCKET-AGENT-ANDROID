@@ -102,6 +102,7 @@ private fun isPocketAccessibilityEnabled(context: Context): Boolean {
 
 private data class UiMessage(val role: String, val text: String)
 private data class PendingCommand(val action: AgentCommandAction, val decision: CompletableDeferred<Boolean>)
+private data class PendingRemoteApproval(val id: Any, val method: String, val params: JSONObject)
 
 private val PocketColors = darkColorScheme(
     primary = Color(0xFFA7F3D0),
@@ -139,6 +140,7 @@ private fun PocketAgentApp() {
     var remoteMode by remember { mutableStateOf(false) }
     var remoteConnected by remember { mutableStateOf(false) }
     var remoteStreamingMessageIndex by remember { mutableStateOf<Int?>(null) }
+    var pendingRemoteApproval by remember { mutableStateOf<PendingRemoteApproval?>(null) }
     val remoteClientRef = remember { arrayOfNulls<CodexRemoteClient>(1) }
     val remoteClient = remember {
         CodexRemoteClient(
@@ -179,11 +181,20 @@ private fun PocketAgentApp() {
             onServerRequest = { request ->
                 scope.launch(Dispatchers.Main.immediate) {
                     val method = request.optString("method", "درخواست سرور")
-                    messages = messages + UiMessage(
-                        "system",
-                        "درخواست تأیید از Codex دریافت شد ($method)، اما رابط تأیید هنوز آماده نیست؛ درخواست به‌صورت امن رد شد."
-                    )
-                    request.opt("id")?.let { remoteClientRef[0]?.rejectServerRequest(it) }
+                    val id = request.opt("id")
+                    val params = request.optJSONObject("params") ?: JSONObject()
+                    val supported = method == "item/commandExecution/requestApproval" ||
+                        method == "item/fileChange/requestApproval"
+                    if (id == null || !supported || pendingRemoteApproval != null) {
+                        id?.let { remoteClientRef[0]?.rejectServerRequest(it, "Unsupported or another approval is pending") }
+                        messages = messages + UiMessage(
+                            "system",
+                            "درخواست Codex رد شد ($method). این نوع درخواست پشتیبانی نمی‌شود یا درخواست دیگری در انتظار تصمیم است."
+                        )
+                    } else {
+                        pendingRemoteApproval = PendingRemoteApproval(id, method, params)
+                        messages = messages + UiMessage("system", "Codex برای ادامهٔ کار به تأیید تو نیاز دارد. جزئیات درخواست را بررسی کن.")
+                    }
                 }
             },
             onConnectionState = { connected, reason ->
@@ -897,6 +908,56 @@ private fun PocketAgentApp() {
                 },
                 confirmButton = { Button(onClick = { request.decision.complete(true) }) { Text("تأیید و اجرا") } },
                 dismissButton = { TextButton(onClick = { request.decision.complete(false) }) { Text("رد کردن") } }
+            )
+        }
+
+        pendingRemoteApproval?.let { approval ->
+            val isCommand = approval.method == "item/commandExecution/requestApproval"
+            AlertDialog(
+                onDismissRequest = {
+                    remoteClient.rejectServerRequest(approval.id, "Declined by user")
+                    pendingRemoteApproval = null
+                },
+                title = { Text(if (isCommand) "تأیید اجرای فرمان روی میزبان" else "تأیید تغییر فایل روی میزبان") },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            if (isCommand) "این فرمان در محیط میزبان Codex اجرا می‌شود، نه روی خود گوشی. قبل از تأیید، فرمان و مسیر کاری را کامل بررسی کن."
+                            else "Codex می‌خواهد فایل‌های پروژهٔ میزبان را تغییر دهد. جزئیات درخواست را بررسی کن.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                        Surface(color = Color(0xFF090909), shape = RoundedCornerShape(10.dp)) {
+                            Text(
+                                approval.params.toString(2),
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                color = Color(0xFFA7F3D0)
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(onClick = {
+                        remoteClient.respondToServerRequest(
+                            approval.id,
+                            JSONObject().put("decision", "accept")
+                        )
+                        messages = messages + UiMessage("system", "درخواست Codex با تأیید تو پذیرفته شد.")
+                        pendingRemoteApproval = null
+                    }) { Text("تأیید درخواست") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        remoteClient.rejectServerRequest(approval.id, "Declined by user")
+                        messages = messages + UiMessage("system", "درخواست Codex رد شد.")
+                        pendingRemoteApproval = null
+                    }) { Text("رد کردن") }
+                }
             )
         }
 
