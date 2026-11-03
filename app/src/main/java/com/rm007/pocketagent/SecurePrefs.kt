@@ -21,6 +21,10 @@ class SecurePrefs(context: Context) {
     fun githubRepo(): String = prefs.getString(KEY_GITHUB_REPO, "") ?: ""
     fun githubBranch(): String = prefs.getString(KEY_GITHUB_BRANCH, "main") ?: "main"
     fun hasGithubToken(): Boolean = githubToken().isNotBlank()
+    fun codexRemoteEndpoint(): String = prefs.getString(KEY_CODEX_REMOTE_ENDPOINT, "") ?: ""
+    fun codexRemoteWorkspace(): String = prefs.getString(KEY_CODEX_REMOTE_WORKSPACE, "") ?: ""
+    fun codexRemoteToken(): String = readSecret(KEY_CODEX_REMOTE_TOKEN)
+    fun hasCodexRemoteToken(): Boolean = codexRemoteToken().isNotBlank()
 
     fun saveProvider(endpoint: String, model: String) {
         prefs.edit().putString(KEY_ENDPOINT, endpoint.trim())
@@ -28,6 +32,14 @@ class SecurePrefs(context: Context) {
     }
 
     fun saveApiKey(value: String) = saveSecret(KEY_API, value)
+
+    fun saveCodexRemoteSettings(endpoint: String, workspace: String, token: String) {
+        prefs.edit()
+            .putString(KEY_CODEX_REMOTE_ENDPOINT, endpoint.trim())
+            .putString(KEY_CODEX_REMOTE_WORKSPACE, workspace.trim())
+            .apply()
+        saveSecret(KEY_CODEX_REMOTE_TOKEN, token)
+    }
 
     fun saveGithubSettings(repo: String, branch: String, token: String) {
         prefs.edit()
@@ -88,6 +100,9 @@ class SecurePrefs(context: Context) {
         private const val KEY_GITHUB_REPO = "github_repo"
         private const val KEY_GITHUB_BRANCH = "github_branch"
         private const val KEY_GITHUB_TOKEN = "github_token_encrypted"
+        private const val KEY_CODEX_REMOTE_ENDPOINT = "codex_remote_endpoint"
+        private const val KEY_CODEX_REMOTE_WORKSPACE = "codex_remote_workspace"
+        private const val KEY_CODEX_REMOTE_TOKEN = "codex_remote_token_encrypted"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val IV_LENGTH = 12
     }
