@@ -1,0 +1,8 @@
+appId: com.rm007.pocketagent
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Pocket Agent"
+- assertVisible: "راه‌اندازی دسترسی گوشی"
+- assertVisible: "باز کردن تنظیمات"
+- assertVisible: "بررسی دوباره"
