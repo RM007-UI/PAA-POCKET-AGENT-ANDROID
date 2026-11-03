@@ -44,7 +44,7 @@ internal object EmbeddedTermuxRuntime {
     fun bashFile(context: Context): File = File(prefix(context), "bin/bash")
 
     private fun systemLinkerPath(): String {
-        val linker = if (Build.SUPPORTED_64_BIT_ABIS.any { it == "arm64-v8a" }) {
+        val linker = if (Build.SUPPORTED_64_BIT_ABIS.isNotEmpty()) {
             "/system/bin/linker64"
         } else {
             "/system/bin/linker"
