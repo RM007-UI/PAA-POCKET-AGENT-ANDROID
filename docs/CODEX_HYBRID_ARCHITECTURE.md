@@ -5,7 +5,7 @@
 Evolve Pocket Agent into a hybrid Android coding workspace with two explicit execution modes:
 
 1. **On-device mode** — keep Pocket Agent's existing private workspace, embedded ARM64 shell, Git/Python utilities, staged file changes, and review-before-apply flow.
-2. **Remote Codex mode** — connect the Android client to a user-operated Codex host through the official Codex app-server protocol over an authenticated encrypted WebSocket connection.
+2. **Remote Codex mode** — connect the Android client to a user-operated Codex host through the official Codex app-server protocol. The current Android transport prototype uses authenticated WebSocket over TLS; OpenAI currently documents this WebSocket transport as experimental and unsupported, so it is not a production-stability guarantee.
 
 The app must clearly label which mode is active. Remote Codex is not represented as local execution, and the existing provider-compatible agent is retained as a fallback.
 
@@ -33,7 +33,7 @@ These capabilities remain intact. Remote Codex integration must not silently byp
 ### Android client
 - **Mode selector:** On-device Agent / Remote Codex.
 - **Remote connection settings:** WSS endpoint, pairing/auth token, connection test, disconnect/revoke.
-- **Codex transport:** WebSocket client implementing JSON-RPC framing and app-server initialize/handshake, request IDs, notifications, cancellation, reconnect handling, and protocol-version checks.
+- **Codex transport:** WebSocket client implementing the app-server JSON-RPC-lite framing, initialize/initialized handshake, request IDs, notifications, cancellation, and connection failure handling. WebSocket transport is experimental/unsupported in current Codex docs.
 - **Conversation UI:** render assistant messages, tool activity, progress, errors, and approval requests as distinct events.
 - **Approval UI:** require a clear user decision for any remote action that requests approval. Never auto-approve command execution.
 - **Workspace bridge:** explicitly select which project folder/workspace is shared with the remote host. Show the selected root and the fact that project data is sent to that host.
@@ -41,7 +41,7 @@ These capabilities remain intact. Remote Codex integration must not silently byp
 
 ### Remote host
 - Runs a compatible Codex CLI/app-server installation on a supported desktop or server OS.
-- Exposes the app-server only through a private, authenticated encrypted tunnel.
+- Exposes the app-server only through WSS with bearer-token authentication, or through a private SSH-forwarded loopback connection. Never expose an unauthenticated listener.
 - Uses a dedicated low-privilege OS account and a dedicated project directory.
 - Keeps Codex sandbox and approval policies enabled; no unrestricted host-wide access by default.
 - Does not expose an unauthenticated public WebSocket listener.
@@ -59,11 +59,10 @@ These capabilities remain intact. Remote Codex integration must not silently byp
 ## Delivery phases
 
 ### Phase 0 — Compatibility and protocol spike
-- Confirm current app package, Gradle setup, min/target SDK, and networking dependencies.
-- Pin a tested Codex app-server protocol version.
-- Build a small protocol test harness against a local development host.
-- Verify initialize, thread/session creation, message streaming, cancellation, and approval events.
-- Document protocol gaps and unsupported methods.
+- Confirmed current app package `com.rm007.pocketagent`, minSdk 26, compileSdk 36, and Kotlin/Compose setup.
+- Added OkHttp transport dependency and an experimental `CodexRemoteClient` implementation.
+- Implemented initialize/initialized, thread/start, turn/start, turn/interrupt, notifications, and explicit server-request response/rejection hooks.
+- Next: compile and test against a local Codex app-server host; verify protocol compatibility and approval request shapes.
 
 ### Phase 1 — Remote connection foundation
 - Add remote endpoint and pairing-token settings.
@@ -111,3 +110,4 @@ These capabilities remain intact. Remote Codex integration must not silently byp
 Planning branch created: `codex-hybrid`.
 
 This document is the implementation contract for the first hybrid milestone. It does not claim that remote transport or an Android-native official Codex binary has already been implemented.
+\n\n## Implementation notes (2026-11-03)\n\n- `CodexRemoteClient.kt` is an initial transport layer, not a completed UI integration.\n- The Android app must not advertise WebSocket as a stable or officially supported production transport: current OpenAI docs label it experimental/unsupported.\n- Remote server requests are surfaced to a callback; until a user-facing approval dialog is implemented, the UI integration must reject them rather than silently approve.\n- The official protocol uses JSON-RPC-lite messages over the selected transport, with `initialize` then `initialized`, followed by thread and turn methods.\n
