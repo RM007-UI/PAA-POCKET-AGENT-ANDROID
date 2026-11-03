@@ -139,10 +139,21 @@ internal object EmbeddedTermuxRuntime {
             "PS1" to "pocket-agent$ "
         )
         // Created by termux-exec's postinst during bootstrap second-stage.
-        val termuxExec = prefix.resolve("lib/libtermux-exec-ld-preload.so")
-        if (termuxExec.isFile) env["LD_PRELOAD"] = termuxExec.absolutePath
+        // Android 10+ blocks direct execve() of app-private ELF binaries.
+        // Always use Termux's system-linker shim so child commands are re-executed
+        // through /system/bin/linker64 instead of failing with EACCES (126).
+        val linkerExecShim = prefix.resolve("lib/libtermux-exec-linker-ld-preload.so")
+        if (linkerExecShim.isFile) {
+            env["LD_PRELOAD"] = linkerExecShim.absolutePath
+            env["TERMUX_EXEC__SYSTEM_LINKER_EXEC__MODE"] = "force"
+        }
         return env.map { (key, value) -> "$key=$value" }.toTypedArray()
     }
+
+    fun terminalShellExecutable(context: Context): String = systemLinkerPath()
+
+    fun terminalShellArguments(context: Context): Array<String> =
+        arrayOf(bashFile(context).absolutePath, "--login", "-i")
 
     fun execute(
         context: Context,
