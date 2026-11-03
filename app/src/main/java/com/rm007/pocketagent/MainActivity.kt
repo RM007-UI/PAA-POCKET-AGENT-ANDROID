@@ -167,6 +167,7 @@ private fun PocketAgentApp() {
             onConnectionState = { connected, reason ->
                 scope.launch(Dispatchers.Main.immediate) {
                     remoteConnected = connected
+                    if (!connected) busy = false
                     if (!connected && reason != null) {
                         messages = messages + UiMessage("system", "اتصال Remote قطع شد: $reason")
                     }
@@ -497,6 +498,10 @@ private fun PocketAgentApp() {
                 messages = messages + UiMessage("system", "ایجنت نتوانست کار را کامل کند: ${e.message ?: e.javaClass.simpleName}")
             } finally { if (!keepBusyForRemoteTurn) busy = false }
         }
+    }
+
+    DisposableEffect(remoteClient) {
+        onDispose { remoteClient.close() }
     }
 
     MaterialTheme(colorScheme = PocketColors) {
