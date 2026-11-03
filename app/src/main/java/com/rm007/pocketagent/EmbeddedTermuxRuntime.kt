@@ -235,6 +235,21 @@ internal object EmbeddedTermuxRuntime {
         )
         check(script.isFile) { "اسکریپت مرحلهٔ دوم bootstrap پیدا نشد." }
 
+        // Some cached termux-tools builds may embed the upstream Termux package
+        // prefix in pkg instead of the app-specific prefix. Repair this script
+        // in-place before any early return so existing installs are fixed too.
+        val pkgScript = prefix.resolve("bin/pkg")
+        if (pkgScript.isFile) {
+            val pkgSource = pkgScript.readText(Charsets.UTF_8)
+            val upstreamPrefix = "/data/data/com.termux/files/usr"
+            if (pkgSource.contains(upstreamPrefix)) {
+                pkgScript.writeText(
+                    pkgSource.replace(upstreamPrefix, prefix.absolutePath),
+                    Charsets.UTF_8
+                )
+            }
+        }
+
         val marker = prefix.resolve("var/lib/pocket-agent/bootstrap-second-stage-v1")
         if (marker.isFile) return
 
