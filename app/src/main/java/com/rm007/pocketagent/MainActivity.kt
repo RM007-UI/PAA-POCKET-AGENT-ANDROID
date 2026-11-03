@@ -694,7 +694,11 @@ private fun PocketAgentApp() {
                     ) {
                         Surface(color = Color(0xFF17231E), shape = RoundedCornerShape(11.dp), modifier = Modifier.weight(1f)) {
                             Text(
-                                "خروجی فایل و ترمینال ممکن است برای تحلیل به مدل ارسال شود. روت و فرمان‌ها همیشه تأیید می‌خواهند.",
+                                if (remoteMode) {
+                                    "حالت Remote: پیام‌ها و اطلاعات پروژه به میزبان Codex فرستاده می‌شوند و فرمان‌ها همان‌جا اجرا می‌شوند. هر درخواست تأیید را جداگانه بررسی کن."
+                                } else {
+                                    "خروجی فایل و ترمینال ممکن است برای تحلیل به مدل ارسال شود. روت و فرمان‌ها همیشه تأیید می‌خواهند."
+                                },
                                 modifier = Modifier.padding(9.dp),
                                 fontSize = 11.sp,
                                 color = Color(0xFFD1FAE5)
