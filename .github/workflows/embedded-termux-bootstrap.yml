@@ -2,7 +2,7 @@ name: Build embedded Termux runtime for PAA
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "codex-hybrid"]
     paths:
       - ".github/workflows/embedded-termux-bootstrap.yml"
   workflow_dispatch:
@@ -91,7 +91,7 @@ jobs:
         working-directory: termux-packages
         run: |
           set -euo pipefail
-          rm -f bootstrap-aarch64.zip bootstrap-aarch64.zip.sha256
+          rm -f bootstrap-aarch64.zip bootstrap-aarch64.zip.sha256 bootstrap-x86_64.zip bootstrap-x86_64.zip.sha256
           python3 - <<'PY'
           from pathlib import Path
           path = Path("scripts/build-bootstraps.sh")
@@ -104,29 +104,34 @@ jobs:
           PY
           CONTAINER_NAME=termux-package-builder ./scripts/run-docker.sh mkdir -p /tmp/paa-bootstrap-output
 
-      - name: Build ARM64 Termux bootstrap with developer tools
+      - name: Build ARM64 and x86_64 Termux bootstraps with developer tools
         working-directory: termux-packages
         run: |
           set -euo pipefail
-          CONTAINER_NAME=termux-package-builder ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures aarch64 --add git,python,wget,tree
-          docker cp termux-package-builder:/tmp/paa-bootstrap-output/bootstrap-aarch64.zip bootstrap-aarch64.zip
-          test -s bootstrap-aarch64.zip
+          for ARCH in aarch64 x86_64; do
+            CONTAINER_NAME=termux-package-builder ./scripts/run-docker.sh ./scripts/build-bootstraps.sh --architectures "$ARCH" --add git,python,wget,tree
+            docker cp "termux-package-builder:/tmp/paa-bootstrap-output/bootstrap-$ARCH.zip" "bootstrap-$ARCH.zip"
+            test -s "bootstrap-$ARCH.zip"
+          done
 
-      - name: Verify bootstrap and calculate checksum
+      - name: Verify both bootstraps and calculate checksums
         working-directory: termux-packages
         run: |
           set -euo pipefail
-          test -s bootstrap-aarch64.zip
-          unzip -l bootstrap-aarch64.zip | grep -q 'SYMLINKS.txt'
-          sha256sum bootstrap-aarch64.zip > bootstrap-aarch64.zip.sha256
-          cat bootstrap-aarch64.zip.sha256
-
+          for ARCH in aarch64 x86_64; do
+            test -s "bootstrap-$ARCH.zip"
+            unzip -l "bootstrap-$ARCH.zip" | grep -q 'SYMLINKS.txt'
+            sha256sum "bootstrap-$ARCH.zip" > "bootstrap-$ARCH.zip.sha256"
+            cat "bootstrap-$ARCH.zip.sha256"
+          done
       - name: Upload verified bootstrap artifact
         uses: actions/upload-artifact@v4
         with:
-          name: paa-embedded-termux-bootstrap-aarch64
+          name: paa-embedded-termux-bootstrap-multiarch
           path: |
             termux-packages/bootstrap-aarch64.zip
             termux-packages/bootstrap-aarch64.zip.sha256
+            termux-packages/bootstrap-x86_64.zip
+            termux-packages/bootstrap-x86_64.zip.sha256
           if-no-files-found: error
           retention-days: 30
