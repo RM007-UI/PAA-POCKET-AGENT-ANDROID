@@ -1405,9 +1405,7 @@ private fun ProviderSettingsDialog(
                     (apiKey.isNotBlank() || hasSavedKey) &&
                     (githubRepo.isBlank() || githubRepo.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))) &&
                     githubBranch.isNotBlank() &&
-                    (remoteEndpoint.isBlank() || remoteEndpoint.startsWith("wss://", ignoreCase = true) ||
-                        (remoteEndpoint.startsWith("ws://", ignoreCase = true) &&
-                            (remoteEndpoint.contains("localhost") || remoteEndpoint.contains("127.0.0.1")))) &&
+                    (remoteEndpoint.isBlank() || remoteEndpoint.startsWith("wss://", ignoreCase = true)) &&
                     (remoteEndpoint.isBlank() || remoteWorkspace.isNotBlank()) &&
                     (remoteEndpoint.isBlank() || remoteEndpoint.startsWith("ws://", ignoreCase = true) ||
                         remoteToken.isNotBlank() || hasSavedRemoteToken)
