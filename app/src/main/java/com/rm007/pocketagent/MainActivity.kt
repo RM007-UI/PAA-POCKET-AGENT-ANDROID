@@ -141,6 +141,7 @@ private fun PocketAgentApp() {
     var remoteConnected by remember { mutableStateOf(false) }
     var remoteStreamingMessageIndex by remember { mutableStateOf<Int?>(null) }
     var remoteTurnCompleted by remember { mutableStateOf(false) }
+    var remoteStartedItems by remember { mutableStateOf<Map<String, JSONObject>>(emptyMap()) }
     var pendingRemoteApproval by remember { mutableStateOf<PendingRemoteApproval?>(null) }
     val remoteClientRef = remember { arrayOfNulls<CodexRemoteClient>(1) }
     val remoteClient = remember {
@@ -177,8 +178,27 @@ private fun PocketAgentApp() {
                                 pendingRemoteApproval = null
                             }
                         }
-                        "turn/started", "item/started", "item/completed", "thread/started" -> {
-                            // These lifecycle notifications are intentionally kept out of the chat transcript.
+                        "item/started" -> {
+                            val item = params?.optJSONObject("item")
+                            val itemId = item?.optString("id").orEmpty()
+                            if (item != null && itemId.isNotBlank()) {
+                                remoteStartedItems = remoteStartedItems + (itemId to item)
+                            }
+                        }
+                        "item/completed" -> {
+                            val item = params?.optJSONObject("item")
+                            val itemId = item?.optString("id").orEmpty()
+                            if (itemId.isNotBlank()) remoteStartedItems = remoteStartedItems - itemId
+                            val itemType = item?.optString("type").orEmpty()
+                            if (itemType == "commandExecution" || itemType == "fileChange") {
+                                messages = messages + UiMessage(
+                                    "tool",
+                                    "Codex · " + itemType + "\n" + item?.toString(2).orEmpty()
+                                )
+                            }
+                        }
+                        "turn/started", "thread/started" -> {
+                            // Lifecycle notifications are intentionally kept out of the chat transcript.
                         }
                         else -> {
                             val detail = event.toString().take(1200)
@@ -192,17 +212,29 @@ private fun PocketAgentApp() {
                     val method = request.optString("method", "درخواست سرور")
                     val id = request.opt("id")
                     val params = request.optJSONObject("params") ?: JSONObject()
+                    val itemId = params.optString("itemId")
+                    val startedItem = remoteStartedItems[itemId]
+                    val reviewDetails = JSONObject().put("approvalRequest", params)
+                    startedItem?.let { reviewDetails.put("startedItem", it) }
                     val supported = method == "item/commandExecution/requestApproval" ||
                         method == "item/fileChange/requestApproval"
-                    if (id == null || !supported || pendingRemoteApproval != null) {
-                        id?.let { remoteClientRef[0]?.rejectServerRequest(it, "Unsupported or another approval is pending") }
+                    val hasReviewableDetails = when (method) {
+                        "item/commandExecution/requestApproval" ->
+                            params.has("command") || params.has("networkApprovalContext") ||
+                                startedItem?.has("command") == true || startedItem?.has("networkApprovalContext") == true
+                        "item/fileChange/requestApproval" ->
+                            params.has("changes") || startedItem?.has("changes") == true
+                        else -> false
+                    }
+                    if (id == null || !supported || !hasReviewableDetails || pendingRemoteApproval != null) {
+                        id?.let { remoteClientRef[0]?.rejectServerRequest(it, "Unsupported, incomplete, or another approval is pending") }
                         messages = messages + UiMessage(
                             "system",
-                            "درخواست Codex رد شد ($method). این نوع درخواست پشتیبانی نمی‌شود یا درخواست دیگری در انتظار تصمیم است."
+                            "درخواست Codex رد شد ($method). نوع درخواست پشتیبانی نمی‌شود، جزئیات کافی برای بررسی ندارد یا درخواست دیگری در انتظار تصمیم است."
                         )
                     } else {
-                        pendingRemoteApproval = PendingRemoteApproval(id, method, params)
-                        messages = messages + UiMessage("system", "Codex برای ادامهٔ کار به تأیید تو نیاز دارد. جزئیات درخواست را بررسی کن.")
+                        pendingRemoteApproval = PendingRemoteApproval(id, method, reviewDetails)
+                        messages = messages + UiMessage("system", "Codex برای ادامهٔ کار به تأیید تو نیاز دارد. جزئیات کامل درخواست را بررسی کن.")
                     }
                 }
             },
@@ -929,20 +961,32 @@ private fun PocketAgentApp() {
 
         pendingRemoteApproval?.let { approval ->
             val isCommand = approval.method == "item/commandExecution/requestApproval"
+            val isNetwork = approval.params.optJSONObject("approvalRequest")?.has("networkApprovalContext") == true
             AlertDialog(
                 onDismissRequest = {
                     remoteClient.rejectServerRequest(approval.id, "Declined by user")
                     pendingRemoteApproval = null
                 },
-                title = { Text(if (isCommand) "تأیید اجرای فرمان روی میزبان" else "تأیید تغییر فایل روی میزبان") },
+                title = {
+                    Text(
+                        when {
+                            isNetwork -> "تأیید دسترسی شبکه روی میزبان"
+                            isCommand -> "تأیید اجرای فرمان روی میزبان"
+                            else -> "تأیید تغییر فایل روی میزبان"
+                        }
+                    )
+                },
                 text = {
                     Column(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            if (isCommand) "این فرمان در محیط میزبان Codex اجرا می‌شود، نه روی خود گوشی. قبل از تأیید، فرمان و مسیر کاری را کامل بررسی کن."
-                            else "Codex می‌خواهد فایل‌های پروژهٔ میزبان را تغییر دهد. جزئیات درخواست را بررسی کن.",
+                            when {
+                                isNetwork -> "Codex درخواست دسترسی شبکه برای میزبان راه دور دارد. مقصد و پروتکل را بررسی کن."
+                                isCommand -> "این فرمان در محیط میزبان Codex اجرا می‌شود، نه روی خود گوشی. قبل از تأیید، فرمان و مسیر کاری را کامل بررسی کن."
+                                else -> "Codex می‌خواهد فایل‌های پروژهٔ میزبان را تغییر دهد. تغییرات پیشنهادی را بررسی کن."
+                            },
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.secondary
                         )
