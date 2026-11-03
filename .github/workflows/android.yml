@@ -146,9 +146,8 @@ jobs:
             adb shell 'run-as com.rm007.pocketagent sh -c "P=/data/data/com.rm007.pocketagent/files/usr; export PREFIX=$P TERMUX_PREFIX=$P HOME=/data/data/com.rm007.pocketagent/files/home TMPDIR=$P/tmp PATH=$P/bin:/system/bin:/system/xbin LD_LIBRARY_PATH=$P/lib LD_PRELOAD=$P/lib/libtermux-exec-linker-ld-preload.so TERMUX_EXEC__SYSTEM_LINKER_EXEC__MODE=force TERMUX_PACKAGE_MANAGER=apt TERMUX_PACKAGE_ARCH=x86_64 ANDROID_ROOT=/system ANDROID_DATA=/data ANDROID__BUILD_VERSION_SDK=35; /system/bin/linker64 $P/bin/bash --login -c \"printf PAA_X86_64_RUNTIME_OK; uname -m; id; dpkg --version; pkg --version\""' > emulator-test-results/runtime-smoke.txt
             grep -q PAA_X86_64_RUNTIME_OK emulator-test-results/runtime-smoke.txt
             grep -q x86_64 emulator-test-results/runtime-smoke.txt
-            adb shell uiautomator dump /sdcard/window.xml
-            adb pull /sdcard/window.xml emulator-test-results/window.xml
-            test -s emulator-test-results/window.xml
+            # The initial hierarchy is already captured above. Avoid a second
+            # uiautomator dump/pull: emulator shared-storage reads can fail intermittently.
             adb exec-out screencap -p > emulator-test-results/screen.png
             adb logcat -d -t 12000 > emulator-test-results/logcat.txt
             ! grep -E "FATAL EXCEPTION|Process: com.rm007.pocketagent" emulator-test-results/logcat.txt
