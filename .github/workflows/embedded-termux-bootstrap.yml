@@ -63,17 +63,21 @@ jobs:
           path.write_text(source)
           PY
 
-          # kernel.org mirror timed out while fetching GNU coreutils in CI.
-          # Use the official GNU download host for the same pinned archive/checksum.
+          # kernel.org intermittently times out for GNU source archives in CI.
+          # Redirect all GNU package recipes using that mirror to the official GNU host;
+          # package versions and upstream checksum verification remain unchanged.
           python3 - <<'PY'
           from pathlib import Path
-          path = Path("packages/coreutils/build.sh")
-          source = path.read_text()
-          old = "https://mirrors.kernel.org/gnu/coreutils/coreutils-${TERMUX_PKG_VERSION}.tar.xz"
-          new = "https://ftp.gnu.org/gnu/coreutils/coreutils-${TERMUX_PKG_VERSION}.tar.xz"
-          if old not in source:
-              raise SystemExit("Expected coreutils kernel.org source URL was not found")
-          path.write_text(source.replace(old, new, 1))
+          changed = []
+          for path in Path("packages").glob("*/build.sh"):
+              source = path.read_text()
+              updated = source.replace("https://mirrors.kernel.org/gnu/", "https://ftp.gnu.org/gnu/")
+              if updated != source:
+                  path.write_text(updated)
+                  changed.append(str(path))
+          if not changed:
+              raise SystemExit("No GNU mirror URLs were found to patch")
+          print("Redirected GNU source URLs in:", ", ".join(changed))
           PY
 
           # This upstream bootstrap still lists bzip2 although this pinned source revision
