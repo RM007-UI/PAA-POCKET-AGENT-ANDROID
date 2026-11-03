@@ -126,6 +126,45 @@ private fun PocketAgentApp() {
     val agent = remember { AgentEngine(context.applicationContext, chatStore).apply { selectChat(chatStore.currentChatId()) } }
     val securePrefs = remember { SecurePrefs(context.applicationContext) }
 
+    var remoteMode by remember { mutableStateOf(false) }
+    var remoteConnected by remember { mutableStateOf(false) }
+    val remoteClientRef = remember { arrayOfNulls<CodexRemoteClient>(1) }
+    val remoteClient = remember {
+        CodexRemoteClient(
+            onEvent = { event ->
+                scope.launch(Dispatchers.Main.immediate) {
+                    val method = event.optString("method", event.optString("type", "event"))
+                    val params = event.optJSONObject("params")
+                    val detail = when (method) {
+                        "item/agentMessage/delta" -> params?.optString("delta").orEmpty()
+                        "turn/completed" -> "اجرای نوبت Remote پایان یافت."
+                        else -> event.toString().take(1800)
+                    }
+                    if (detail.isNotBlank()) messages = messages + UiMessage("tool", "Codex · $method\n$detail")
+                    if (method == "turn/completed") busy = false
+                }
+            },
+            onServerRequest = { request ->
+                scope.launch(Dispatchers.Main.immediate) {
+                    val method = request.optString("method", "درخواست سرور")
+                    messages = messages + UiMessage(
+                        "system",
+                        "درخواست تأیید از Codex دریافت شد ($method)، اما رابط تأیید هنوز آماده نیست؛ درخواست به‌صورت امن رد شد."
+                    )
+                    request.opt("id")?.let { remoteClientRef[0]?.rejectServerRequest(it) }
+                }
+            },
+            onConnectionState = { connected, reason ->
+                scope.launch(Dispatchers.Main.immediate) {
+                    remoteConnected = connected
+                    if (!connected && reason != null) {
+                        messages = messages + UiMessage("system", "اتصال Remote قطع شد: $reason")
+                    }
+                }
+            }
+        ).also { remoteClientRef[0] = it }
+    }
+
     var messages by remember(currentChatId) {
         val saved = chatStore.loadMessages(currentChatId).map { UiMessage(it.role, it.text) }
         mutableStateOf(saved.ifEmpty {
@@ -322,6 +361,33 @@ private fun PocketAgentApp() {
         }
     }
 
+    fun toggleRemoteConnection() {
+        if (remoteClient.isConnected()) {
+            remoteClient.disconnect()
+            remoteConnected = false
+            messages = messages + UiMessage("system", "از Codex Remote جدا شدی.")
+            return
+        }
+        val endpoint = securePrefs.codexRemoteEndpoint()
+        val token = securePrefs.codexRemoteToken()
+        if (endpoint.isBlank()) {
+            showSettings = true
+            messages = messages + UiMessage("system", "ابتدا نشانی WSS، توکن و مسیر پروژه روی میزبان Remote را در تنظیمات وارد کن.")
+            return
+        }
+        busy = true
+        scope.launch {
+            try {
+                remoteClient.connect(endpoint, token)
+                messages = messages + UiMessage("system", "اتصال Codex Remote برقرار شد. اجرای فرمان‌ها و دسترسی به فایل‌ها روی میزبان راه دور انجام می‌شود.")
+            } catch (e: Exception) {
+                messages = messages + UiMessage("system", "اتصال Codex Remote ناموفق بود: ${e.message ?: e.javaClass.simpleName}")
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     fun sendMessage() {
         val prompt = input.trim()
         if (prompt.isEmpty() || busy) return
@@ -331,8 +397,21 @@ private fun PocketAgentApp() {
         messages = messages + UiMessage("user", prompt)
         busy = true
         scope.launch {
+            var keepBusyForRemoteTurn = false
             try {
-                val answer = agent.runTask(
+                if (remoteMode) {
+                    check(remoteClient.isConnected()) { "ابتدا اتصال Codex Remote را برقرار کن." }
+                    val remoteWorkspace = securePrefs.codexRemoteWorkspace()
+                    check(remoteWorkspace.isNotBlank()) { "مسیر پروژه روی میزبان Remote در تنظیمات خالی است." }
+                    if (remoteClient.threadId == null) remoteClient.startThread(remoteWorkspace)
+                    val response = remoteClient.sendTurn(prompt)
+                    response.optJSONObject("error")?.let {
+                        throw IllegalStateException(it.optString("message", "Codex درخواست را نپذیرفت."))
+                    }
+                    keepBusyForRemoteTurn = true
+                    messages = messages + UiMessage("system", "درخواست به Codex Remote ارسال شد؛ منتظر رویدادهای اجرا هستیم.")
+                } else {
+                    val answer = agent.runTask(
                     prompt,
                     confirmCommand = { action ->
                         val gate = CompletableDeferred<Boolean>()
@@ -412,9 +491,10 @@ private fun PocketAgentApp() {
                 )
                 messages = messages + UiMessage("assistant", answer)
                 refreshChanges(open = false)
+                }
             } catch (e: Exception) {
                 messages = messages + UiMessage("system", "ایجنت نتوانست کار را کامل کند: ${e.message ?: e.javaClass.simpleName}")
-            } finally { busy = false }
+            } finally { if (!keepBusyForRemoteTurn) busy = false }
         }
     }
 
@@ -435,6 +515,12 @@ private fun PocketAgentApp() {
                             }
                         },
                         actions = {
+                            TextButton(onClick = { remoteMode = !remoteMode }, enabled = !busy) {
+                                Text(if (remoteMode) "Remote" else "Local", fontSize = 11.sp)
+                            }
+                            TextButton(onClick = { toggleRemoteConnection() }, enabled = !busy) {
+                                Text(if (remoteConnected) "قطع اتصال" else "اتصال", fontSize = 11.sp)
+                            }
                             IconButton(onClick = { showChats = true; chatList = chatStore.listChats() }, enabled = !busy) {
                                 Icon(Icons.Filled.History, contentDescription = "گفتگوها")
                             }
@@ -714,12 +800,16 @@ private fun PocketAgentApp() {
                 initialGithubRepo = securePrefs.githubRepo(),
                 initialGithubBranch = securePrefs.githubBranch(),
                 hasSavedGithubToken = securePrefs.hasGithubToken(),
+                initialRemoteEndpoint = securePrefs.codexRemoteEndpoint(),
+                initialRemoteWorkspace = securePrefs.codexRemoteWorkspace(),
+                hasSavedRemoteToken = securePrefs.hasCodexRemoteToken(),
                 onDismiss = { showSettings = false },
-                onSave = { endpoint, model, key, repo, branch, githubToken ->
+                onSave = { endpoint, model, key, repo, branch, githubToken, remoteEndpoint, remoteWorkspace, remoteToken ->
                     try {
                         agent.saveSettings(endpoint, model, key)
                         securePrefs.saveGithubSettings(repo, branch, githubToken)
-                        messages = messages + UiMessage("system", "تنظیمات ذخیره شد. کلید API و توکن GitHub در Android Keystore رمزگذاری می‌شوند و به مدل ارسال نمی‌شوند.")
+                        securePrefs.saveCodexRemoteSettings(remoteEndpoint, remoteWorkspace, remoteToken)
+                        messages = messages + UiMessage("system", "تنظیمات ذخیره شد. کلیدها و توکن‌ها در Android Keystore رمزگذاری می‌شوند و به مدل ارسال نمی‌شوند.")
                         showSettings = false
                         refreshChanges(open = false)
                     } catch (e: Exception) {
@@ -1066,8 +1156,11 @@ private fun ProviderSettingsDialog(
     initialGithubRepo: String,
     initialGithubBranch: String,
     hasSavedGithubToken: Boolean,
+    initialRemoteEndpoint: String,
+    initialRemoteWorkspace: String,
+    hasSavedRemoteToken: Boolean,
     onDismiss: () -> Unit,
-    onSave: (String, String, String, String, String, String) -> Unit
+    onSave: (String, String, String, String, String, String, String, String, String) -> Unit
 ) {
     var endpoint by remember(initialEndpoint) { mutableStateOf(initialEndpoint) }
     var model by remember(initialModel) { mutableStateOf(initialModel) }
@@ -1075,6 +1168,9 @@ private fun ProviderSettingsDialog(
     var githubRepo by remember(initialGithubRepo) { mutableStateOf(initialGithubRepo) }
     var githubBranch by remember(initialGithubBranch) { mutableStateOf(initialGithubBranch) }
     var githubToken by remember { mutableStateOf("") }
+    var remoteEndpoint by remember(initialRemoteEndpoint) { mutableStateOf(initialRemoteEndpoint) }
+    var remoteWorkspace by remember(initialRemoteWorkspace) { mutableStateOf(initialRemoteWorkspace) }
+    var remoteToken by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1122,15 +1218,46 @@ private fun ProviderSettingsDialog(
                     visualTransformation = PasswordVisualTransformation(), singleLine = true
                 )
                 Text("کلیدهای جدید داخل Android Keystore رمزگذاری می‌شوند. مخزن عمومی ممکن است اطلاعاتی داشته باشد که نباید ارسال شوند؛ پیش از push، تغییرات را بررسی کن.", fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+
+                Divider(color = Color(0xFF303030))
+                Text("Codex Remote · آزمایشی", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                Text(
+                    "برای اتصال به میزبان دارای Codex App Server. WebSocket فعلاً در مستندات Codex آزمایشی و پشتیبانی‌نشده اعلام شده؛ اتصال راه دور باید WSS و توکن احراز هویت داشته باشد.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                OutlinedTextField(
+                    value = remoteEndpoint, onValueChange = { remoteEndpoint = it }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text("نشانی Codex App Server (WSS)") },
+                    placeholder = { Text("wss://your-host.example:4500") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), singleLine = true
+                )
+                OutlinedTextField(
+                    value = remoteWorkspace, onValueChange = { remoteWorkspace = it }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text("مسیر پروژه روی میزبان Remote") },
+                    placeholder = { Text("/home/user/project") }, singleLine = true
+                )
+                OutlinedTextField(
+                    value = remoteToken, onValueChange = { remoteToken = it }, modifier = Modifier.fillMaxWidth(),
+                    label = { Text("توکن دسترسی Codex Remote") },
+                    placeholder = { Text(if (hasSavedRemoteToken) "توکن ذخیره شده؛ برای حفظ خالی بگذار" else "Bearer token سرور") },
+                    visualTransformation = PasswordVisualTransformation(), singleLine = true
+                )
             }
         },
         confirmButton = {
             Button(
-                onClick = { onSave(endpoint.trim(), model.trim(), apiKey.trim(), githubRepo.trim(), githubBranch.trim(), githubToken.trim()) },
+                onClick = { onSave(endpoint.trim(), model.trim(), apiKey.trim(), githubRepo.trim(), githubBranch.trim(), githubToken.trim(), remoteEndpoint.trim(), remoteWorkspace.trim(), remoteToken.trim()) },
                 enabled = endpoint.trim().startsWith("https://", ignoreCase = true) && model.isNotBlank() &&
                     (apiKey.isNotBlank() || hasSavedKey) &&
                     (githubRepo.isBlank() || githubRepo.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))) &&
-                    githubBranch.isNotBlank()
+                    githubBranch.isNotBlank() &&
+                    (remoteEndpoint.isBlank() || remoteEndpoint.startsWith("wss://", ignoreCase = true) ||
+                        (remoteEndpoint.startsWith("ws://", ignoreCase = true) &&
+                            (remoteEndpoint.contains("localhost") || remoteEndpoint.contains("127.0.0.1")))) &&
+                    (remoteEndpoint.isBlank() || remoteWorkspace.isNotBlank()) &&
+                    (remoteEndpoint.isBlank() || remoteEndpoint.startsWith("ws://", ignoreCase = true) ||
+                        remoteToken.isNotBlank() || hasSavedRemoteToken)
             ) { Text("ذخیره") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("لغو") } }
