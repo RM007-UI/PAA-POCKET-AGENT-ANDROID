@@ -231,9 +231,9 @@ private class PocketTerminalController(
         if (!workingDirectory.exists()) workingDirectory.mkdirs()
         val env = EmbeddedTermuxRuntime.terminalEnvironment(context, toolDirectory)
         return TerminalSession(
-            EmbeddedTermuxRuntime.bashFile(context).absolutePath,
+            EmbeddedTermuxRuntime.terminalShellExecutable(context),
             workingDirectory.absolutePath,
-            arrayOf("--login", "-i"),
+            EmbeddedTermuxRuntime.terminalShellArguments(context),
             env,
             6000,
             this
