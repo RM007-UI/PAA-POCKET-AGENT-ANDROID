@@ -158,7 +158,7 @@ class CodexRemoteClient(
         sendRaw(payload)
     }
 
-    fun isConnected(): Boolean = socket != null && !socket!!.let { false } && initialized
+    fun isConnected(): Boolean = socket != null && initialized
 
     fun disconnect() {
         initialized = false
@@ -248,7 +248,7 @@ class CodexRemoteClient(
             socket = null
             activeThreadId = null
             failPending("اتصال Codex بسته شد: $reason")
-            onConnectionState(false, reason.ifBlank { null })
+            onConnectionState(false, reason.takeIf { it.isNotBlank() })
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
