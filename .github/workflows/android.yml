@@ -72,11 +72,13 @@ jobs:
           mkdir -p "$RUNNER_TEMP/paa-bootstrap" app/src/main/assets
           gh run download "$BOOTSTRAP_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
-            --name "paa-embedded-termux-bootstrap-aarch64" \
+            --name "paa-embedded-termux-bootstrap-multiarch" \
             --dir "$RUNNER_TEMP/paa-bootstrap"
           (cd "$RUNNER_TEMP/paa-bootstrap" && sha256sum -c bootstrap-aarch64.zip.sha256)
-          install -m 0644 "$RUNNER_TEMP/paa-bootstrap/bootstrap-aarch64.zip" app/src/main/assets/bootstrap-aarch64.zip
-          install -m 0644 "$RUNNER_TEMP/paa-bootstrap/bootstrap-aarch64.zip.sha256" app/src/main/assets/bootstrap-aarch64.zip.sha256
+          for ARCH in aarch64 x86_64; do
+            install -m 0644 "$RUNNER_TEMP/paa-bootstrap/bootstrap-$ARCH.zip" "app/src/main/assets/bootstrap-$ARCH.zip"
+            install -m 0644 "$RUNNER_TEMP/paa-bootstrap/bootstrap-$ARCH.zip.sha256" "app/src/main/assets/bootstrap-$ARCH.zip.sha256"
+          done
 
       - name: Set up Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
@@ -95,9 +97,11 @@ jobs:
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/debug/app-debug.apk"
-          unzip -Z1 "$APK" | grep -Fxq "assets/bootstrap-aarch64.zip"
-          unzip -Z1 "$APK" | grep -Fxq "assets/bootstrap-aarch64.zip.sha256"
-          unzip -p "$APK" assets/bootstrap-aarch64.zip.sha256 | grep -Eq '^[a-fA-F0-9]{64}[[:space:]]+bootstrap-aarch64[.]zip$'
+          for ARCH in aarch64 x86_64; do
+            unzip -Z1 "$APK" | grep -Fxq "assets/bootstrap-$ARCH.zip"
+            unzip -Z1 "$APK" | grep -Fxq "assets/bootstrap-$ARCH.zip.sha256"
+            unzip -p "$APK" "assets/bootstrap-$ARCH.zip.sha256" | grep -Eq "^[a-fA-F0-9]{64}[[:space:]]+bootstrap-$ARCH[.]zip$"
+          done
 
       - name: Upload APK artifact
         if: steps.bootstrap.outputs.available == 'true'
