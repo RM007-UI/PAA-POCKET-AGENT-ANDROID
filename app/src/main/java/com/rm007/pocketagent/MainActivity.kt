@@ -410,9 +410,11 @@ private fun PocketAgentApp() {
                     )
                 }
             } catch (e: Exception) {
+                android.util.Log.e("PocketAgent", "Embedded terminal initialization failed", e)
+                val detail = (e.message ?: e.javaClass.simpleName).take(8_000)
                 messages = messages + UiMessage(
                     "system",
-                    "راه‌اندازی ترمینال داخلی ناموفق بود: ${e.message ?: e.javaClass.simpleName}"
+                    "راه‌اندازی ترمینال داخلی ناموفق بود:\n$detail"
                 )
             } finally {
                 busy = false
