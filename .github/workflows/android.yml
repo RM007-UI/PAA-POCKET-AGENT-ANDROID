@@ -2,7 +2,7 @@ name: Build Pocket Agent APK
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "codex-hybrid"]
     paths:
       - "app/**"
       - "build.gradle.kts"
