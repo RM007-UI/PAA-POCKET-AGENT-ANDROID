@@ -257,6 +257,12 @@ private fun PocketAgentApp() {
         )
     }
 
+    LaunchedEffect(currentChatId) {
+        remoteClient.clearActiveThread()
+        remoteStreamingMessageIndex = null
+        pendingRemoteApproval = null
+    }
+
     LaunchedEffect(currentChatId, messages) {
         val stored = messages.map { StoredMessage(it.role, it.text) }
         withContext(Dispatchers.IO) {
