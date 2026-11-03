@@ -64,25 +64,34 @@ class CodexRemoteClient(
         if (bearerToken.isNotBlank()) builder.header("Authorization", "Bearer $bearerToken")
 
         socket = http.newWebSocket(builder.build(), listener)
-        withTimeout(CONNECT_TIMEOUT_MS) { opened.await() }
+        try {
+            withTimeout(CONNECT_TIMEOUT_MS) { opened.await() }
 
-        val init = request(
-            "initialize",
-            JSONObject().put(
-                "clientInfo",
-                JSONObject()
-                    .put("name", "pocket_agent_android")
-                    .put("title", "Pocket Agent for Android")
-                    .put("version", "0.12.0")
+            val init = request(
+                "initialize",
+                JSONObject().put(
+                    "clientInfo",
+                    JSONObject()
+                        .put("name", "pocket_agent_android")
+                        .put("title", "Pocket Agent for Android")
+                        .put("version", "0.12.0")
+                )
             )
-        )
-        if (init.has("error")) {
-            disconnect()
-            throw IllegalStateException(init.optJSONObject("error")?.optString("message") ?: "Codex initialization failed")
+            if (init.has("error")) {
+                throw IllegalStateException(init.optJSONObject("error")?.optString("message") ?: "Codex initialization failed")
+            }
+            check(sendNotificationIfConnected("initialized", JSONObject())) {
+                "اعلان پایان راه‌اندازی به سرور ارسال نشد."
+            }
+            initialized = true
+            onConnectionState(true, null)
+        } catch (error: Throwable) {
+            initialized = false
+            socket?.cancel()
+            socket = null
+            failPending(error.message ?: "راه‌اندازی Codex ناموفق بود.")
+            throw error
         }
-        sendNotification("initialized", JSONObject())
-        initialized = true
-        onConnectionState(true, null)
     }
 
     suspend fun startThread(
@@ -201,6 +210,9 @@ class CodexRemoteClient(
     private fun sendNotification(method: String, params: JSONObject) {
         sendRaw(JSONObject().put("method", method).put("params", params))
     }
+
+    private fun sendNotificationIfConnected(method: String, params: JSONObject): Boolean =
+        sendRaw(JSONObject().put("method", method).put("params", params))
 
     private fun sendRaw(message: JSONObject): Boolean =
         socket?.send(message.toString()) == true
