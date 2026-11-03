@@ -5,9 +5,13 @@ on:
     branches: ["main"]
     paths:
       - "app/**"
+      - ".maestro/**"
+      - ".github/workflows/android.yml"
       - "build.gradle.kts"
       - "settings.gradle.kts"
       - "gradle.properties"
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
   workflow_run:
     workflows: ["Build embedded Termux runtime for PAA"]
@@ -21,10 +25,11 @@ jobs:
   build:
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      MAESTRO_CLI_NO_ANALYTICS: "1"
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -88,6 +93,47 @@ jobs:
 
       - name: Assemble debug APK
         run: gradle --no-daemon assembleDebug --stacktrace
+
+      - name: Install Maestro CLI
+        env:
+          MAESTRO_VERSION: "2.12.1"
+        run: |
+          set -euo pipefail
+          export MAESTRO_VERSION
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+          "$HOME/.maestro/bin/maestro" --version
+
+      - name: Enable KVM for Android Emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run Maestro UI smoke test
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            set -euo pipefail
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            maestro test --debug-output maestro-debug-output .maestro/smoke.yaml
+
+      - name: Upload Maestro diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocket-agent-maestro-diagnostics
+          path: maestro-debug-output/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Verify embedded runtime is packaged
         if: steps.bootstrap.outputs.available == 'true'
