@@ -230,18 +230,15 @@ class CodexRemoteClient(
                 return
             }
 
-            if (message.has("id")) {
+            if (message.has("method")) {
+                // Server-initiated requests have a method; handle them before
+                // matching response IDs because both peers own an ID namespace.
+                onServerRequest(message)
+            } else if (message.has("id")) {
                 val rawId = message.opt("id")
                 val numericId = rawId?.toString()?.toIntOrNull()
                 val waiting = numericId?.let { pending.remove(it) }
-                if (waiting != null) {
-                    waiting.complete(message)
-                } else if (message.has("method")) {
-                    // Server-initiated request: never auto-approve.
-                    onServerRequest(message)
-                } else {
-                    onEvent(message)
-                }
+                if (waiting != null) waiting.complete(message) else onEvent(message)
             } else {
                 onEvent(message)
             }
