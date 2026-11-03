@@ -104,6 +104,10 @@ internal object EmbeddedTermuxRuntime {
             check(isInstalled(context)) { "محیط داخلی نصب شد اما Bash یا فایل‌های پایه پیدا نشدند." }
         }
         ensureBootstrapConfigured(context)
+        check(systemLinkerPath().isNotBlank()) { "لینکر سیستمی اندروید در دسترس نیست." }
+        check(prefix(context).resolve("lib/libtermux-exec-linker-ld-preload.so").isFile) {
+            "محیط Termux پیکربندی شد، اما shim اجرای سازگار با اندروید ساخته نشده است."
+        }
     }
 
     fun terminalEnvironment(context: Context, extraBin: File? = null): Array<String> {
