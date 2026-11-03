@@ -140,6 +140,7 @@ private fun PocketAgentApp() {
     var remoteMode by remember { mutableStateOf(false) }
     var remoteConnected by remember { mutableStateOf(false) }
     var remoteStreamingMessageIndex by remember { mutableStateOf<Int?>(null) }
+    var remoteTurnCompleted by remember { mutableStateOf(false) }
     var pendingRemoteApproval by remember { mutableStateOf<PendingRemoteApproval?>(null) }
     val remoteClientRef = remember { arrayOfNulls<CodexRemoteClient>(1) }
     val remoteClient = remember {
@@ -166,7 +167,15 @@ private fun PocketAgentApp() {
                         "turn/completed" -> {
                             messages = messages + UiMessage("system", "اجرای نوبت Codex Remote پایان یافت.")
                             remoteStreamingMessageIndex = null
+                            remoteTurnCompleted = true
+                            pendingRemoteApproval = null
                             busy = false
+                        }
+                        "serverRequest/resolved" -> {
+                            val resolvedId = params?.opt("requestId")?.toString()
+                            if (resolvedId != null && resolvedId == pendingRemoteApproval?.id?.toString()) {
+                                pendingRemoteApproval = null
+                            }
                         }
                         "turn/started", "item/started", "item/completed", "thread/started" -> {
                             // These lifecycle notifications are intentionally kept out of the chat transcript.
@@ -437,6 +446,7 @@ private fun PocketAgentApp() {
         scope.launch {
             var keepBusyForRemoteTurn = false
             remoteStreamingMessageIndex = null
+            remoteTurnCompleted = false
             try {
                 if (remoteMode) {
                     check(remoteClient.isConnected()) { "ابتدا اتصال Codex Remote را برقرار کن." }
@@ -447,7 +457,7 @@ private fun PocketAgentApp() {
                     response.optJSONObject("error")?.let {
                         throw IllegalStateException(it.optString("message", "Codex درخواست را نپذیرفت."))
                     }
-                    keepBusyForRemoteTurn = true
+                    keepBusyForRemoteTurn = !remoteTurnCompleted
                     messages = messages + UiMessage("system", "درخواست به Codex Remote ارسال شد؛ منتظر رویدادهای اجرا هستیم.")
                 } else {
                     val answer = agent.runTask(
