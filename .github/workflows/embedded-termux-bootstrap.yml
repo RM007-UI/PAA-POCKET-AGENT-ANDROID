@@ -80,6 +80,20 @@ jobs:
           print("Redirected GNU source URLs in:", ", ".join(changed))
           PY
 
+          # Apache removes older APR-util releases from its live mirror.
+          # Keep the pinned 1.6.5 source and its upstream checksum, but fetch it
+          # from the Apache distribution archive where that release is retained.
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("packages/apr-util/build.sh")
+          source = path.read_text()
+          old = "https://downloads.apache.org/apr/apr-util-"
+          new = "https://archive.apache.org/dist/apr/apr-util-"
+          if old not in source:
+              raise SystemExit("Expected APR-util Apache download URL was not found")
+          path.write_text(source.replace(old, new))
+          PY
+
           # This upstream bootstrap still lists bzip2 although this pinned source revision
           # no longer has a bzip2 package recipe. It is not required for the embedded shell.
           python3 - <<'PY'
